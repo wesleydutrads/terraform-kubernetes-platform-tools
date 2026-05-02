@@ -51,8 +51,10 @@ locals {
     kind: ServiceEntry
     metadata:
       name: keycloak-public-host
-      namespace: ${var.namespace}
+      namespace: ${var.gateway_namespace}
     spec:
+      exportTo:
+        - "."
       hosts:
         - ${var.host}
       location: MESH_EXTERNAL
@@ -75,6 +77,10 @@ resource "kubernetes_namespace_v1" "this" {
     labels = var.enable_ambient ? {
       "istio.io/dataplane-mode" = "ambient"
     } : {}
+  }
+
+  lifecycle {
+    ignore_changes = [metadata[0].labels]
   }
 }
 

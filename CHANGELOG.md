@@ -8,6 +8,7 @@
 - Added modules for platform, observability, Argo CD, Keycloak runtime, and Keycloak configuration.
 - Documented the boundary between cloud infrastructure modules and Kubernetes application/tool modules.
 - Added Kiali OIDC proxy headers and included the OIDC issuer host in observability egress ServiceEntries.
+- Scoped public ServiceEntries to the Istio root namespace and allowed platform-owned waypoint labels on tool namespaces.
 
 ### Decisions
 

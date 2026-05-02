@@ -441,8 +441,10 @@ locals {
     kind: ServiceEntry
     metadata:
       name: bookinfo-public-host
-      namespace: default
+      namespace: ${local.istio_namespace}
     spec:
+      exportTo:
+        - "."
       hosts:
         - ${local.bookinfo_host}
       location: MESH_EXTERNAL
@@ -821,7 +823,7 @@ resource "null_resource" "bookinfo_public_host_service_entry" {
   triggers = {
     manifest_sha    = sha1(local.bookinfo_service_entry_manifest)
     name            = "bookinfo-public-host"
-    namespace       = "default"
+    namespace       = local.istio_namespace
     kubectl_path    = var.kubectl_path
     kubeconfig_path = local.kubeconfig_path
   }

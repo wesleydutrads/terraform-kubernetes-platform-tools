@@ -36,8 +36,10 @@ ${local.public_hosts_policy}
     kind: ServiceEntry
     metadata:
       name: monitoring-public-hosts
-      namespace: ${var.namespace}
+      namespace: ${var.istio_root_namespace}
     spec:
+      exportTo:
+        - "."
       hosts:
 ${local.public_hosts_service_entry}
       location: MESH_EXTERNAL
@@ -131,6 +133,10 @@ resource "kubernetes_namespace_v1" "this" {
     labels = {
       "istio.io/dataplane-mode" = "ambient"
     }
+  }
+
+  lifecycle {
+    ignore_changes = [metadata[0].labels]
   }
 }
 
