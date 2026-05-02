@@ -8,8 +8,13 @@ resource "random_password" "admin" {
 resource "random_password" "database" {
   count = var.enabled && var.database_password == null ? 1 : 0
 
-  length  = 24
-  special = false
+  length           = 24
+  special          = true
+  override_special = "#_-"
+  min_lower        = 1
+  min_upper        = 1
+  min_numeric      = 1
+  min_special      = 1
 }
 
 locals {
@@ -170,6 +175,8 @@ resource "kubernetes_job_v1" "database_bootstrap" {
   }
 
   lifecycle {
+    replace_triggered_by = [kubernetes_secret_v1.this[0]]
+
     precondition {
       condition     = var.database_host != null && var.database_admin_username != null && var.database_admin_password != null
       error_message = "database_host, database_admin_username, and database_admin_password are required when Keycloak is enabled."

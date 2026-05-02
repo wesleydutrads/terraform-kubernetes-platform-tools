@@ -124,6 +124,19 @@ resource "kubernetes_namespace_v1" "this" {
   }
 }
 
+resource "kubernetes_secret_v1" "grafana_oidc" {
+  count = var.enabled && var.enable_prometheus_stack && local.oidc_enabled ? 1 : 0
+
+  metadata {
+    name      = "grafana-oidc"
+    namespace = kubernetes_namespace_v1.this[0].metadata[0].name
+  }
+
+  data = {
+    client-secret = var.oidc.grafana_client_secret
+  }
+}
+
 resource "helm_release" "prometheus_stack" {
   count            = var.enabled && var.enable_prometheus_stack ? 1 : 0
   name             = "monitoring"
@@ -152,7 +165,7 @@ resource "helm_release" "prometheus_stack" {
             name                = "Keycloak"
             allow_sign_up       = true
             client_id           = var.oidc.grafana_client_id
-            client_secret       = var.oidc.grafana_client_secret
+            client_secret       = "$__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}"
             scopes              = "openid profile email groups"
             auth_url            = "${var.oidc.issuer_url}/protocol/openid-connect/auth"
             token_url           = "${var.oidc.issuer_url}/protocol/openid-connect/token"
@@ -160,6 +173,14 @@ resource "helm_release" "prometheus_stack" {
             role_attribute_path = "contains(groups[*], '${var.oidc.admin_group}') && 'Admin' || contains(groups[*], '${var.oidc.readonly_group}') && 'Viewer' || 'Viewer'"
           }
         } : {})
+        envValueFrom = local.oidc_enabled ? {
+          GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET = {
+            secretKeyRef = {
+              name = kubernetes_secret_v1.grafana_oidc[0].metadata[0].name
+              key  = "client-secret"
+            }
+          }
+        } : {}
         persistence = {
           enabled          = var.enable_grafana_persistence
           storageClassName = var.monitoring_storage_class_name
@@ -218,6 +239,8 @@ resource "helm_release" "prometheus_stack" {
       }
     })
   ]
+
+  depends_on = [kubernetes_secret_v1.grafana_oidc]
 }
 
 resource "helm_release" "loki" {
