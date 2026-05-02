@@ -1,14 +1,31 @@
 locals {
-  kubeconfig_path                    = pathexpand(var.kubeconfig_path)
-  tracing_host                       = var.hosts.tracing
-  tracing_backend                    = var.enable_tempo ? "monitoring-grafana" : "jaeger"
-  tracing_backend_port               = var.enable_tempo ? 80 : 16686
-  oidc_issuer_host                   = local.oidc_enabled ? regex("^https?://([^/]+)", var.oidc.issuer_url)[0] : null
-  monitoring_public_hosts            = distinct([var.hosts.kiali, var.hosts.grafana, local.tracing_host])
-  egress_public_hosts                = distinct(compact(concat(local.monitoring_public_hosts, [local.oidc_issuer_host])))
-  public_hosts_policy                = join("\n", [for host in local.monitoring_public_hosts : "                  - ${host}"])
-  public_hosts_service_entry         = join("\n", [for host in local.egress_public_hosts : "        - ${host}"])
-  oidc_enabled                       = var.oidc != null
+  kubeconfig_path            = pathexpand(var.kubeconfig_path)
+  tracing_host               = var.hosts.tracing
+  tracing_backend            = var.enable_tempo ? "monitoring-grafana" : "jaeger"
+  tracing_backend_port       = var.enable_tempo ? 80 : 16686
+  oidc_issuer_host           = local.oidc_enabled ? regex("^https?://([^/]+)", var.oidc.issuer_url)[0] : null
+  monitoring_public_hosts    = distinct([var.hosts.kiali, var.hosts.grafana, local.tracing_host])
+  egress_public_hosts        = distinct(compact(concat(local.monitoring_public_hosts, [local.oidc_issuer_host])))
+  public_hosts_policy        = join("\n", [for host in local.monitoring_public_hosts : "                  - ${host}"])
+  public_hosts_service_entry = join("\n", [for host in local.egress_public_hosts : "        - ${host}"])
+  oidc_enabled               = var.oidc != null
+  kiali_discovery_override   = local.oidc_enabled ? try(var.oidc.kiali_discovery_override, null) : null
+  kiali_discovery_override_values = local.kiali_discovery_override == null ? {} : {
+    discovery_override = merge(
+      try(local.kiali_discovery_override.authorization_endpoint, null) == null ? {} : {
+        authorization_endpoint = local.kiali_discovery_override.authorization_endpoint
+      },
+      try(local.kiali_discovery_override.jwks_uri, null) == null ? {} : {
+        jwks_uri = local.kiali_discovery_override.jwks_uri
+      },
+      try(local.kiali_discovery_override.token_endpoint, null) == null ? {} : {
+        token_endpoint = local.kiali_discovery_override.token_endpoint
+      },
+      try(local.kiali_discovery_override.userinfo_endpoint, null) == null ? {} : {
+        userinfo_endpoint = local.kiali_discovery_override.userinfo_endpoint
+      }
+    )
+  }
   token_policy_manifest              = <<-YAML
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
@@ -167,6 +184,11 @@ resource "helm_release" "prometheus_stack" {
         enabled       = true
         adminPassword = var.monitoring_token
         "grafana.ini" = merge({
+          server = {
+            domain   = var.hosts.grafana
+            protocol = "http"
+            root_url = "https://${var.hosts.grafana}"
+          }
           "auth.anonymous" = {
             enabled  = var.enable_grafana_anonymous_viewer
             org_name = "Main Org."
@@ -182,10 +204,10 @@ resource "helm_release" "prometheus_stack" {
             allow_sign_up       = true
             client_id           = var.oidc.grafana_client_id
             client_secret       = "$__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}"
-            scopes              = "openid profile email groups"
-            auth_url            = "${var.oidc.issuer_url}/protocol/openid-connect/auth"
-            token_url           = "${var.oidc.issuer_url}/protocol/openid-connect/token"
-            api_url             = "${var.oidc.issuer_url}/protocol/openid-connect/userinfo"
+            scopes              = "openid profile email"
+            auth_url            = coalesce(try(var.oidc.grafana_auth_url, null), "${var.oidc.issuer_url}/protocol/openid-connect/auth")
+            token_url           = coalesce(try(var.oidc.grafana_token_url, null), "${var.oidc.issuer_url}/protocol/openid-connect/token")
+            api_url             = coalesce(try(var.oidc.grafana_api_url, null), "${var.oidc.issuer_url}/protocol/openid-connect/userinfo")
             role_attribute_path = "contains(groups[*], '${var.oidc.admin_group}') && 'Admin' || contains(groups[*], '${var.oidc.readonly_group}') && 'Viewer' || 'Viewer'"
           }
         } : {})
@@ -459,13 +481,13 @@ resource "helm_release" "kiali" {
       auth = merge({
         strategy = var.kiali_auth_strategy
         }, local.oidc_enabled && var.kiali_auth_strategy == "openid" ? {
-        openid = {
+        openid = merge({
           client_id      = var.oidc.kiali_client_id
           issuer_uri     = var.oidc.issuer_url
-          scopes         = ["openid", "profile", "email", "groups"]
+          scopes         = ["openid", "profile", "email"]
           username_claim = "preferred_username"
           disable_rbac   = true
-        }
+        }, local.kiali_discovery_override_values)
       } : {})
       external_services = {
         prometheus = {

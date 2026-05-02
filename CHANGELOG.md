@@ -9,6 +9,8 @@
 - Documented the boundary between cloud infrastructure modules and Kubernetes application/tool modules.
 - Added Kiali OIDC proxy headers and included the OIDC issuer host in observability egress ServiceEntries.
 - Scoped public ServiceEntries to the Istio root namespace and allowed platform-owned waypoint labels on tool namespaces.
+- Added OIDC back-channel endpoint overrides for restricted clusters and Argo CD host aliases for internal Keycloak discovery.
+- Added OCI NLB `external-ip-only` support on the public Istio Gateway service.
 
 ### Decisions
 
@@ -16,3 +18,4 @@
 - Keep Helm, Kubernetes manifests, and application providers in this repository.
 - Run Keycloak runtime and Keycloak provider configuration in separate phases because the provider authenticates during planning.
 - Do not attach Argo CD to MySQL; Argo CD uses Kubernetes as its source of persisted cluster state and Redis as cache.
+- Do not request a separate `groups` OAuth scope from Keycloak; group claims are provided by protocol mappers.

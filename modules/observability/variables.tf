@@ -70,10 +70,19 @@ variable "oidc" {
     issuer_url            = string
     grafana_client_id     = string
     grafana_client_secret = string
+    grafana_auth_url      = optional(string)
+    grafana_token_url     = optional(string)
+    grafana_api_url       = optional(string)
     kiali_client_id       = string
     kiali_client_secret   = string
-    admin_group           = optional(string, "platform-admins")
-    readonly_group        = optional(string, "platform-readonly")
+    kiali_discovery_override = optional(object({
+      authorization_endpoint = optional(string)
+      jwks_uri               = optional(string)
+      token_endpoint         = optional(string)
+      userinfo_endpoint      = optional(string)
+    }))
+    admin_group    = optional(string, "platform-admins")
+    readonly_group = optional(string, "platform-readonly")
   })
   default = null
 }

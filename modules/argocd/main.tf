@@ -74,7 +74,8 @@ resource "helm_release" "this" {
   values = [
     yamlencode({
       global = {
-        domain = var.host
+        domain      = var.host
+        hostAliases = var.host_aliases
       }
       configs = merge({
         params = {
@@ -92,8 +93,7 @@ resource "helm_release" "this" {
             requestedScopes = [
               "openid",
               "profile",
-              "email",
-              "groups"
+              "email"
             ]
           })
         } : {})

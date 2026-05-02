@@ -51,6 +51,7 @@ locals {
       infrastructure:
         annotations:
           oci.oraclecloud.com/load-balancer-type: nlb
+          oci-network-load-balancer.oraclecloud.com/external-ip-only: "true"
         parametersRef:
           group: ""
           kind: ConfigMap
@@ -81,6 +82,9 @@ locals {
   public_gateway_options           = <<-YAML
     service: |
       spec:
+        ipFamilyPolicy: SingleStack
+        ipFamilies:
+          - IPv4
         loadBalancerSourceRanges:
 %{for cidr in var.public_gateway_allowed_cidrs~}
           - ${cidr}

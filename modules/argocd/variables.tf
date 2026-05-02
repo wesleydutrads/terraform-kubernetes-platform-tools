@@ -66,6 +66,15 @@ variable "admin_enabled" {
   default     = true
 }
 
+variable "host_aliases" {
+  description = "Optional host aliases injected into Argo CD pods, useful for internal OIDC provider routing."
+  type = list(object({
+    ip        = string
+    hostnames = list(string)
+  }))
+  default = []
+}
+
 variable "oidc" {
   description = "Optional OIDC configuration for Argo CD."
   type = object({
