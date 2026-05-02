@@ -3,9 +3,11 @@ locals {
   tracing_host                       = var.hosts.tracing
   tracing_backend                    = var.enable_tempo ? "monitoring-grafana" : "jaeger"
   tracing_backend_port               = var.enable_tempo ? 80 : 16686
-  public_hosts                       = distinct([var.hosts.kiali, var.hosts.grafana, local.tracing_host])
-  public_hosts_policy                = join("\n", [for host in local.public_hosts : "                  - ${host}"])
-  public_hosts_service_entry         = join("\n", [for host in local.public_hosts : "        - ${host}"])
+  oidc_issuer_host                   = local.oidc_enabled ? regex("^https?://([^/]+)", var.oidc.issuer_url)[0] : null
+  monitoring_public_hosts            = distinct([var.hosts.kiali, var.hosts.grafana, local.tracing_host])
+  egress_public_hosts                = distinct(compact(concat(local.monitoring_public_hosts, [local.oidc_issuer_host])))
+  public_hosts_policy                = join("\n", [for host in local.monitoring_public_hosts : "                  - ${host}"])
+  public_hosts_service_entry         = join("\n", [for host in local.egress_public_hosts : "        - ${host}"])
   oidc_enabled                       = var.oidc != null
   token_policy_manifest              = <<-YAML
     apiVersion: security.istio.io/v1
@@ -65,7 +67,15 @@ ${local.public_hosts_service_entry}
       hostnames:
         - ${var.hosts.kiali}
       rules:
-        - backendRefs:
+        - filters:
+            - type: RequestHeaderModifier
+              requestHeaderModifier:
+                set:
+                  - name: X-Forwarded-Port
+                    value: "443"
+                  - name: X-Forwarded-Proto
+                    value: https
+          backendRefs:
             - name: kiali
               port: 20001
     YAML
