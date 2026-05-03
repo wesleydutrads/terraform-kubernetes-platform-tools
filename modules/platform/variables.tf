@@ -95,6 +95,36 @@ variable "enable_istio_ambient" {
   default     = true
 }
 
+variable "enable_istio_tracing" {
+  description = "Configure mesh-wide Istio tracing to an OpenTelemetry provider."
+  type        = bool
+  default     = true
+}
+
+variable "istio_tracing_provider_name" {
+  description = "Istio Telemetry provider name for mesh tracing."
+  type        = string
+  default     = "tempo"
+}
+
+variable "istio_tracing_service" {
+  description = "OpenTelemetry collector service used by Istio tracing."
+  type        = string
+  default     = "tempo.observability.svc.cluster.local"
+}
+
+variable "istio_tracing_port" {
+  description = "OpenTelemetry gRPC port used by Istio tracing."
+  type        = number
+  default     = 4317
+}
+
+variable "istio_tracing_sampling_percentage" {
+  description = "Istio tracing random sampling percentage."
+  type        = number
+  default     = 100
+}
+
 variable "enable_public_ingress_gateway" {
   description = "Install public Istio ingress gateway."
   type        = bool

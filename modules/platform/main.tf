@@ -108,6 +108,18 @@ locals {
             namespaces:
               from: All
     YAML
+  mesh_tracing_manifest            = <<-YAML
+    apiVersion: telemetry.istio.io/v1
+    kind: Telemetry
+    metadata:
+      name: mesh-default
+      namespace: ${local.istio_namespace}
+    spec:
+      tracing:
+        - providers:
+            - name: ${var.istio_tracing_provider_name}
+          randomSamplingPercentage: ${var.istio_tracing_sampling_percentage}
+    YAML
   bookinfo_manifest                = <<-YAML
     apiVersion: v1
     kind: Service
@@ -621,6 +633,22 @@ resource "helm_release" "istiod" {
   chart      = "istiod"
   namespace  = kubernetes_namespace_v1.istio_system[0].metadata[0].name
 
+  values = var.enable_istio_tracing ? [
+    yamlencode({
+      meshConfig = {
+        extensionProviders = [
+          {
+            name = var.istio_tracing_provider_name
+            opentelemetry = {
+              service = var.istio_tracing_service
+              port    = var.istio_tracing_port
+            }
+          }
+        ]
+      }
+    })
+  ] : []
+
   set = [
     {
       name  = "profile"
@@ -754,6 +782,31 @@ resource "null_resource" "central_egress_waypoint" {
 
   depends_on = [
     null_resource.gateway_api_crds,
+    helm_release.istiod
+  ]
+}
+
+resource "null_resource" "mesh_tracing" {
+  count = var.enabled && var.enable_istio_ambient && var.enable_istio_tracing ? 1 : 0
+
+  triggers = {
+    manifest_sha    = sha1(local.mesh_tracing_manifest)
+    name            = "mesh-default"
+    namespace       = local.istio_namespace
+    kubectl_path    = var.kubectl_path
+    kubeconfig_path = local.kubeconfig_path
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.mesh_tracing_manifest}\nYAML"
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete telemetry ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+  }
+
+  depends_on = [
     helm_release.istiod
   ]
 }

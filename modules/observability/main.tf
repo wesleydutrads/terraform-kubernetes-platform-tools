@@ -69,6 +69,64 @@ ${local.public_hosts_service_entry}
           protocol: HTTPS
       resolution: DNS
     YAML
+  istio_pod_monitors_manifest        = <<-YAML
+    apiVersion: monitoring.coreos.com/v1
+    kind: PodMonitor
+    metadata:
+      name: istio-ztunnel
+      namespace: ${var.namespace}
+      labels:
+        release: monitoring
+    spec:
+      namespaceSelector:
+        matchNames:
+          - ${var.istio_root_namespace}
+      selector:
+        matchLabels:
+          app: ztunnel
+      podMetricsEndpoints:
+        - port: ztunnel-stats
+          path: /stats/prometheus
+          interval: 15s
+    ---
+    apiVersion: monitoring.coreos.com/v1
+    kind: PodMonitor
+    metadata:
+      name: istio-proxies
+      namespace: ${var.namespace}
+      labels:
+        release: monitoring
+    spec:
+      namespaceSelector:
+        any: true
+      selector:
+        matchExpressions:
+          - key: service.istio.io/canonical-name
+            operator: Exists
+      podMetricsEndpoints:
+        - port: http-envoy-prom
+          path: /stats/prometheus
+          interval: 15s
+    ---
+    apiVersion: monitoring.coreos.com/v1
+    kind: PodMonitor
+    metadata:
+      name: istiod
+      namespace: ${var.namespace}
+      labels:
+        release: monitoring
+    spec:
+      namespaceSelector:
+        matchNames:
+          - ${var.istio_root_namespace}
+      selector:
+        matchLabels:
+          app: istiod
+      podMetricsEndpoints:
+        - port: http-monitoring
+          path: /metrics
+          interval: 15s
+    YAML
   kiali_route_manifest               = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
@@ -331,7 +389,9 @@ resource "helm_release" "loki" {
           ]
         }
         limits_config = {
-          retention_period = var.loki_retention_period
+          retention_period        = var.loki_retention_period
+          ingestion_rate_mb       = var.loki_ingestion_rate_mb
+          ingestion_burst_size_mb = var.loki_ingestion_burst_size_mb
         }
         compactor = {
           working_directory    = "/tmp/loki/compactor"
@@ -382,6 +442,38 @@ resource "helm_release" "loki" {
       }
     })
   ]
+}
+
+resource "helm_release" "promtail" {
+  count            = var.enabled && var.enable_loki && var.enable_promtail ? 1 : 0
+  name             = "promtail"
+  repository       = "https://grafana.github.io/helm-charts"
+  chart            = "promtail"
+  namespace        = kubernetes_namespace_v1.this[0].metadata[0].name
+  create_namespace = false
+
+  values = [
+    yamlencode({
+      config = {
+        clients = [
+          {
+            url = "http://loki-gateway.${var.namespace}.svc.cluster.local/loki/api/v1/push"
+          }
+        ]
+      }
+      resources = {
+        requests = {
+          cpu    = "20m"
+          memory = "64Mi"
+        }
+        limits = {
+          memory = "160Mi"
+        }
+      }
+    })
+  ]
+
+  depends_on = [helm_release.loki]
 }
 
 resource "helm_release" "tempo" {
@@ -625,6 +717,20 @@ resource "null_resource" "public_host_service_entries" {
   }
 
   depends_on = [kubernetes_namespace_v1.this]
+}
+
+resource "null_resource" "istio_pod_monitors" {
+  count = var.enabled && var.enable_prometheus_stack && var.enable_istio_pod_monitors ? 1 : 0
+
+  triggers = {
+    manifest_sha = sha1(local.istio_pod_monitors_manifest)
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.istio_pod_monitors_manifest}\nYAML"
+  }
+
+  depends_on = [helm_release.prometheus_stack]
 }
 
 resource "null_resource" "kiali_route" {

@@ -153,8 +153,20 @@ variable "enable_loki" {
   default     = true
 }
 
+variable "enable_promtail" {
+  description = "Install Promtail as a node log collector that ships Kubernetes pod logs to Loki."
+  type        = bool
+  default     = true
+}
+
 variable "enable_tempo" {
   description = "Install Grafana Tempo for traces."
+  type        = bool
+  default     = true
+}
+
+variable "enable_istio_pod_monitors" {
+  description = "Create PodMonitors for Istio control plane, gateways, waypoints, and ztunnel so Kiali can render traffic."
   type        = bool
   default     = true
 }
@@ -189,6 +201,18 @@ variable "loki_retention_period" {
   description = "Log retention period managed by Loki."
   type        = string
   default     = "72h"
+}
+
+variable "loki_ingestion_rate_mb" {
+  description = "Per-tenant Loki ingestion rate limit in MB/s."
+  type        = number
+  default     = 16
+}
+
+variable "loki_ingestion_burst_size_mb" {
+  description = "Per-tenant Loki ingestion burst size in MB."
+  type        = number
+  default     = 32
 }
 
 variable "tempo_retention_period" {

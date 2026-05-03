@@ -13,6 +13,8 @@
 - Added OCI NLB `external-ip-only` support on the public Istio Gateway service.
 - Added Keycloak-managed platform users, group assignments, and an optional permanent master realm admin user.
 - Added explicit Keycloak user required actions so temporary platform users keep `UPDATE_PASSWORD`.
+- Added Promtail log collection, Istio PodMonitors, and mesh tracing configuration for Grafana, Loki, Tempo, and Kiali traffic views.
+- Raised default Loki ingestion limits for small-cluster bootstrap backfill from Promtail.
 
 ### Decisions
 
