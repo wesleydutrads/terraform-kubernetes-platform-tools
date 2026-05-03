@@ -165,6 +165,12 @@ variable "enable_tempo" {
   default     = true
 }
 
+variable "enable_tempo_metrics_generator" {
+  description = "Enable Tempo metrics-generator so Grafana can query trace-derived metrics and service maps."
+  type        = bool
+  default     = true
+}
+
 variable "enable_istio_pod_monitors" {
   description = "Create PodMonitors for Istio control plane, gateways, waypoints, and ztunnel so Kiali can render traffic."
   type        = bool

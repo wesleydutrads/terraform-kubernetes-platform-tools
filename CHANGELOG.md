@@ -15,6 +15,7 @@
 - Added explicit Keycloak user required actions so temporary platform users keep `UPDATE_PASSWORD`.
 - Added Promtail log collection, Istio PodMonitors, and mesh tracing configuration for Grafana, Loki, Tempo, and Kiali traffic views.
 - Raised default Loki ingestion limits for small-cluster bootstrap backfill from Promtail.
+- Enabled Tempo metrics-generator by default for Grafana trace metrics and service maps.
 
 ### Decisions
 

@@ -490,7 +490,7 @@ resource "helm_release" "tempo" {
       tempo = {
         retention = var.tempo_retention_period
         metricsGenerator = {
-          enabled = false
+          enabled = var.enable_tempo_metrics_generator
         }
         storage = {
           trace = {
