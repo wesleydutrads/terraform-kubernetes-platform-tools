@@ -542,6 +542,9 @@ resource "helm_release" "loki" {
           path_prefix        = "/tmp/loki"
           replication_factor = 1
         }
+        pattern_ingester = {
+          enabled = var.enable_loki_pattern_ingester
+        }
         storage = {
           type = "s3"
           bucketNames = {

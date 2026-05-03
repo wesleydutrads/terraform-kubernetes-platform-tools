@@ -159,6 +159,12 @@ variable "enable_loki" {
   default     = true
 }
 
+variable "enable_loki_pattern_ingester" {
+  description = "Enable Loki pattern ingester so Grafana can detect repeated log patterns in Logs Drilldown."
+  type        = bool
+  default     = true
+}
+
 variable "enable_promtail" {
   description = "Install Promtail as a node log collector that ships Kubernetes pod logs to Loki."
   type        = bool
