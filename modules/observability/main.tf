@@ -372,10 +372,31 @@ resource "helm_release" "prometheus_stack" {
               url    = "http://tempo.${var.namespace}.svc.cluster.local:3200"
               jsonData = {
                 tracesToLogsV2 = {
-                  datasourceUid = "loki"
+                  datasourceUid      = "loki"
+                  spanStartTimeShift = "-1h"
+                  spanEndTimeShift   = "1h"
+                  tags = [
+                    { key = "namespace" },
+                    { key = "pod" },
+                    { key = "service.name" },
+                    { key = "http.method" },
+                  ]
+                  filterByTraceID = true
+                  filterBySpanID  = false
                 }
                 serviceMap = {
                   datasourceUid = "prometheus"
+                }
+                nodeGraph = {
+                  enabled = true
+                }
+                search = {
+                  hide = false
+                }
+                traceQuery = {
+                  timeShiftEnabled   = true
+                  spanStartTimeShift = "-1h"
+                  spanEndTimeShift   = "1h"
                 }
               }
             }
@@ -387,7 +408,8 @@ resource "helm_release" "prometheus_stack" {
       }
       prometheus = {
         prometheusSpec = {
-          retention = "12h"
+          retention                 = "12h"
+          enableRemoteWriteReceiver = var.enable_tempo && var.enable_tempo_metrics_generator
           podMetadata = {
             labels = {
               "istio.io/dataplane-mode" = "none"
@@ -566,6 +588,14 @@ resource "helm_release" "tempo" {
         retention = var.tempo_retention_period
         metricsGenerator = {
           enabled = var.enable_tempo_metrics_generator
+          storage = {
+            path = "/tmp/tempo"
+            remote_write = var.enable_tempo_metrics_generator ? [
+              {
+                url = "http://monitoring-kube-prometheus-prometheus.${var.namespace}.svc.cluster.local:9090/api/v1/write"
+              }
+            ] : []
+          }
         }
         storage = {
           trace = {
@@ -668,16 +698,18 @@ resource "helm_release" "kiali" {
           root_namespace = var.istio_root_namespace
         }
         grafana = {
-          enabled      = var.enable_prometheus_stack
-          internal_url = "http://monitoring-grafana.${var.namespace}.svc"
-          external_url = "https://${var.hosts.grafana}"
+          enabled        = var.enable_prometheus_stack
+          internal_url   = "http://monitoring-grafana.${var.namespace}.svc"
+          external_url   = "https://${var.hosts.grafana}"
+          datasource_uid = "prometheus"
         }
         tracing = {
-          enabled      = var.enable_tempo || var.enable_jaeger
-          internal_url = var.enable_tempo ? "http://tempo.${var.namespace}.svc.cluster.local:3200" : "http://jaeger.${var.namespace}.svc:16686"
-          external_url = "https://${local.tracing_host}"
-          provider     = var.enable_tempo ? "tempo" : "jaeger"
-          use_grpc     = false
+          enabled          = var.enable_tempo || var.enable_jaeger
+          internal_url     = var.enable_tempo ? "http://tempo.${var.namespace}.svc.cluster.local:3200" : "http://jaeger.${var.namespace}.svc:16686"
+          health_check_url = var.enable_tempo ? "http://tempo.${var.namespace}.svc.cluster.local:3200" : "http://jaeger.${var.namespace}.svc:16686"
+          external_url     = "https://${local.tracing_host}"
+          provider         = var.enable_tempo ? "tempo" : "jaeger"
+          use_grpc         = false
           tempo_config = var.enable_tempo ? {
             datasource_uid = "tempo"
             org_id         = "1"
