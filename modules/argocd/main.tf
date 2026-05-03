@@ -32,7 +32,7 @@ locals {
       namespace: ${var.gateway_namespace}
     spec:
       exportTo:
-        - "."
+        - "*"
       hosts:
         - ${var.host}
       location: MESH_EXTERNAL

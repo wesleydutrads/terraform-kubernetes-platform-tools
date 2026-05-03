@@ -54,7 +54,7 @@ locals {
       namespace: ${var.gateway_namespace}
     spec:
       exportTo:
-        - "."
+        - "*"
       hosts:
         - ${var.host}
       location: MESH_EXTERNAL
@@ -76,7 +76,7 @@ locals {
       namespace: ${var.gateway_namespace}
     spec:
       exportTo:
-        - "."
+        - "*"
       hosts:
         - keycloak-mysql.mesh-external.local
       addresses:
@@ -235,6 +235,10 @@ resource "kubernetes_deployment_v1" "this" {
 
     template {
       metadata {
+        annotations = {
+          "checksum/config" = sha1(jsonencode(kubernetes_config_map_v1.this[0].data))
+        }
+
         labels = {
           app = "keycloak"
         }

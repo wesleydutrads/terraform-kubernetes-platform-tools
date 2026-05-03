@@ -60,7 +60,7 @@ ${local.public_hosts_policy}
       namespace: ${var.istio_root_namespace}
     spec:
       exportTo:
-        - "."
+        - "*"
       hosts:
 ${local.public_hosts_service_entry}
       location: MESH_EXTERNAL
@@ -81,7 +81,7 @@ ${local.public_hosts_service_entry}
       namespace: ${var.istio_root_namespace}
     spec:
       exportTo:
-        - "."
+        - "*"
       hosts:
 ${local.storage_service_entry_hosts}
       location: MESH_EXTERNAL

@@ -547,7 +547,7 @@ locals {
       namespace: ${local.istio_namespace}
     spec:
       exportTo:
-        - "."
+        - "*"
       hosts:
         - ${local.bookinfo_host}
       location: MESH_EXTERNAL

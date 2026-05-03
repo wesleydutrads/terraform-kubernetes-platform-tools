@@ -21,6 +21,7 @@
 - Added ServiceEntries for Keycloak MySQL and observability Object Storage egress, and extended Kiali login token lifetime for long-running graph sessions.
 - Added a named public gateway fallback backend so unmatched wildcard hosts appear as `public-fallback` instead of `unknown` in Kiali.
 - Kept the Kiali login token signing key stable across Helm upgrades to avoid forced session invalidation.
+- Exported shared Istio ServiceEntries mesh-wide so ambient namespaces can resolve named public, Object Storage, and MySQL egress destinations.
 
 ### Decisions
 
@@ -30,3 +31,4 @@
 - Do not attach Argo CD to MySQL; Argo CD uses Kubernetes as its source of persisted cluster state and Redis as cache.
 - Do not request a separate `groups` OAuth scope from Keycloak; group claims are provided by protocol mappers.
 - Use the master realm `admin` role for permanent Keycloak administrators on Keycloak 26, where `realm-management` is not present as a client.
+- Keep Keycloak connected to the OCI MySQL private IP directly; routing it through a selector-less Kubernetes Service changed the network path and caused MySQL handshake timeouts.
