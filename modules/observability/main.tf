@@ -588,6 +588,10 @@ resource "helm_release" "tempo" {
         retention = var.tempo_retention_period
         metricsGenerator = {
           enabled = var.enable_tempo_metrics_generator
+          processor = var.enable_tempo_metrics_generator ? {
+            service_graphs = {}
+            span_metrics   = {}
+          } : {}
           storage = {
             path = "/tmp/tempo"
             remote_write = var.enable_tempo_metrics_generator ? [
@@ -596,6 +600,14 @@ resource "helm_release" "tempo" {
               }
             ] : []
           }
+        }
+        overrides = {
+          defaults = var.enable_tempo_metrics_generator ? {
+            metrics_generator = {
+              processors = ["service-graphs", "span-metrics"]
+            }
+          } : {}
+          per_tenant_override_config = "/conf/overrides.yaml"
         }
         storage = {
           trace = {
