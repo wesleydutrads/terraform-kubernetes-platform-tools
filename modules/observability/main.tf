@@ -376,8 +376,6 @@ resource "helm_release" "prometheus_stack" {
                   spanStartTimeShift = "-1h"
                   spanEndTimeShift   = "1h"
                   tags = [
-                    { key = "namespace" },
-                    { key = "pod" },
                     { key = "service.name", value = "service_name" },
                   ]
                   filterByTraceID = true
@@ -611,6 +609,12 @@ resource "helm_release" "promtail" {
                     }
                   },
                   {
+                    regex = {
+                      expression = "^00-(?P<trace_id>[0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$"
+                      source     = "traceparent"
+                    }
+                  },
+                  {
                     labels = {
                       authority     = ""
                       method        = ""
@@ -802,8 +806,8 @@ resource "helm_release" "kiali" {
         tracing = {
           enabled          = var.enable_tempo || var.enable_jaeger
           internal_url     = var.enable_tempo ? "http://tempo.${var.namespace}.svc.cluster.local:3200" : "http://jaeger.${var.namespace}.svc:16686"
-          health_check_url = var.enable_tempo ? "http://tempo.${var.namespace}.svc.cluster.local:3200" : "http://jaeger.${var.namespace}.svc:16686"
-          external_url     = "https://${local.tracing_host}"
+          health_check_url = var.enable_tempo ? "http://tempo.${var.namespace}.svc.cluster.local:3200/ready" : "http://jaeger.${var.namespace}.svc:16686"
+          external_url     = var.enable_tempo ? "https://${var.hosts.grafana}" : "https://${local.tracing_host}"
           provider         = var.enable_tempo ? "tempo" : "jaeger"
           use_grpc         = false
           tempo_config = var.enable_tempo ? {
