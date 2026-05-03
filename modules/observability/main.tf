@@ -876,6 +876,12 @@ resource "helm_release" "opentelemetry_collector_gateway" {
           servicePort   = 8888
           protocol      = "TCP"
         }
+        "app-metrics" = {
+          enabled       = true
+          containerPort = 8889
+          servicePort   = 8889
+          protocol      = "TCP"
+        }
         "jaeger-compact" = {
           enabled = false
         }
@@ -900,6 +906,14 @@ resource "helm_release" "opentelemetry_collector_gateway" {
       }
       serviceMonitor = {
         enabled = var.enable_prometheus_stack
+        metricsEndpoints = [
+          {
+            port = "metrics"
+          },
+          {
+            port = "app-metrics"
+          }
+        ]
         extraLabels = {
           release = "monitoring"
         }
@@ -954,11 +968,8 @@ resource "helm_release" "opentelemetry_collector_gateway" {
             }
           } : {},
           var.enable_prometheus_stack ? {
-            prometheusremotewrite = {
-              endpoint = "http://monitoring-kube-prometheus-prometheus.${var.namespace}.svc.cluster.local:9090/api/v1/write"
-              tls = {
-                insecure = true
-              }
+            prometheus = {
+              endpoint = "0.0.0.0:8889"
               resource_to_telemetry_conversion = {
                 enabled = true
               }
@@ -987,7 +998,7 @@ resource "helm_release" "opentelemetry_collector_gateway" {
               metrics = {
                 receivers  = ["otlp"]
                 processors = ["memory_limiter", "resource", "batch"]
-                exporters  = ["prometheusremotewrite"]
+                exporters  = ["prometheus"]
               }
             } : {},
             var.enable_loki ? {
@@ -1050,16 +1061,19 @@ resource "null_resource" "bookinfo_opentelemetry_annotations" {
 
   triggers = {
     instrumentation_ref = local.opentelemetry_instrumentation_ref
+    annotation_target   = "pod-template-v1"
     kubeconfig_path     = local.kubeconfig_path
     kubectl_path        = var.kubectl_path
   }
 
   provisioner "local-exec" {
     command = join(" && ", [
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} annotate deployment productpage-v1 -n default instrumentation.opentelemetry.io/inject-python=${local.opentelemetry_instrumentation_ref} --overwrite",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} annotate deployment ratings-v1 -n default instrumentation.opentelemetry.io/inject-nodejs=${local.opentelemetry_instrumentation_ref} --overwrite",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} annotate deployment reviews-v1 reviews-v2 reviews-v3 -n default instrumentation.opentelemetry.io/inject-java=${local.opentelemetry_instrumentation_ref} --overwrite",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} rollout restart deployment productpage-v1 ratings-v1 reviews-v1 reviews-v2 reviews-v3 -n default"
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment productpage-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-python\":\"${local.opentelemetry_instrumentation_ref}\"}}}}}'",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment ratings-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-nodejs\":\"${local.opentelemetry_instrumentation_ref}\"}}}}}'",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${local.opentelemetry_instrumentation_ref}\"}}}}}'",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v2 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${local.opentelemetry_instrumentation_ref}\"}}}}}'",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v3 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${local.opentelemetry_instrumentation_ref}\"}}}}}'",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} rollout status deployment productpage-v1 ratings-v1 reviews-v1 reviews-v2 reviews-v3 -n default --timeout=180s"
     ])
   }
 
