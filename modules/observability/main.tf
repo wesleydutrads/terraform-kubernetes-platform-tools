@@ -658,6 +658,7 @@ resource "helm_release" "kiali" {
       } : {})
       login_token = {
         expiration_seconds = var.kiali_login_token_expiration_seconds
+        signing_key        = var.monitoring_token
       }
       external_services = {
         prometheus = {

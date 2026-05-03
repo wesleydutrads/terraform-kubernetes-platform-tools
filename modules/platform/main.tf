@@ -79,6 +79,93 @@ locals {
               from: All
 %{endif~}
     YAML
+  public_gateway_fallback_manifest = <<-YAML
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: public-fallback-nginx
+      namespace: ${local.istio_namespace}
+    data:
+      default.conf: |
+        server {
+          listen 8080;
+          server_name _;
+          location / {
+            add_header content-type text/plain always;
+            return 404 "No route configured for this host.\n";
+          }
+        }
+    ---
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: public-fallback
+      namespace: ${local.istio_namespace}
+      labels:
+        app: public-fallback
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: public-fallback
+      template:
+        metadata:
+          labels:
+            app: public-fallback
+            service.istio.io/canonical-name: public-fallback
+        spec:
+          containers:
+            - name: nginx
+              image: ${var.public_gateway_fallback_image}
+              ports:
+                - name: http
+                  containerPort: 8080
+              resources:
+                requests:
+                  cpu: 5m
+                  memory: 16Mi
+                limits:
+                  memory: 64Mi
+              volumeMounts:
+                - name: config
+                  mountPath: /etc/nginx/conf.d
+                  readOnly: true
+          volumes:
+            - name: config
+              configMap:
+                name: public-fallback-nginx
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: public-fallback
+      namespace: ${local.istio_namespace}
+      labels:
+        app: public-fallback
+    spec:
+      selector:
+        app: public-fallback
+      ports:
+        - name: http
+          port: 80
+          targetPort: 8080
+    ---
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      name: public-fallback
+      namespace: ${local.istio_namespace}
+    spec:
+      parentRefs:
+        - name: public
+          namespace: ${local.istio_namespace}
+      hostnames:
+        - "*.${var.domain_name}"
+      rules:
+        - backendRefs:
+            - name: public-fallback
+              port: 80
+    YAML
   public_gateway_options           = <<-YAML
     service: |
       spec:
@@ -758,6 +845,20 @@ resource "null_resource" "public_gateway" {
     kubernetes_config_map_v1.public_gateway_options,
     null_resource.wait_wildcard_certificate
   ]
+}
+
+resource "null_resource" "public_gateway_fallback" {
+  count = var.enabled && var.enable_public_ingress_gateway && var.enable_public_gateway_fallback ? 1 : 0
+
+  triggers = {
+    manifest_sha = sha1(local.public_gateway_fallback_manifest)
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.public_gateway_fallback_manifest}\nYAML"
+  }
+
+  depends_on = [null_resource.public_gateway]
 }
 
 resource "null_resource" "central_egress_waypoint" {

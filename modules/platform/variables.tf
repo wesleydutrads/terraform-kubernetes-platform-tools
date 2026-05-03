@@ -178,6 +178,18 @@ variable "bookinfo_host" {
   default     = null
 }
 
+variable "enable_public_gateway_fallback" {
+  description = "Create a low-resource fallback backend and wildcard HTTPRoute so unmatched public hosts are named in Kiali instead of unknown."
+  type        = bool
+  default     = true
+}
+
+variable "public_gateway_fallback_image" {
+  description = "Container image used by the public gateway fallback backend."
+  type        = string
+  default     = "docker.io/nginxinc/nginx-unprivileged:1.27-alpine"
+}
+
 variable "public_gateway_allowed_cidrs" {
   description = "CIDRs allowed to reach the public ingress gateway."
   type        = list(string)
