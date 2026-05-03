@@ -11,6 +11,7 @@
 - Scoped public ServiceEntries to the Istio root namespace and allowed platform-owned waypoint labels on tool namespaces.
 - Added OIDC back-channel endpoint overrides for restricted clusters and Argo CD host aliases for internal Keycloak discovery.
 - Added OCI NLB `external-ip-only` support on the public Istio Gateway service.
+- Added Keycloak-managed platform users, group assignments, and an optional permanent master realm admin user.
 
 ### Decisions
 
@@ -19,3 +20,4 @@
 - Run Keycloak runtime and Keycloak provider configuration in separate phases because the provider authenticates during planning.
 - Do not attach Argo CD to MySQL; Argo CD uses Kubernetes as its source of persisted cluster state and Redis as cache.
 - Do not request a separate `groups` OAuth scope from Keycloak; group claims are provided by protocol mappers.
+- Use the master realm `admin` role for permanent Keycloak administrators on Keycloak 26, where `realm-management` is not present as a client.

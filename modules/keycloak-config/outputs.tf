@@ -20,3 +20,13 @@ output "client_secrets" {
   } : {}
   sensitive = true
 }
+
+output "usernames" {
+  description = "Platform realm users managed by this module."
+  value       = var.enabled ? keys(var.users) : []
+}
+
+output "master_admin_username" {
+  description = "Permanent master realm admin username, when enabled."
+  value       = var.enabled && var.master_admin_user != null ? var.master_admin_user.username : null
+}
