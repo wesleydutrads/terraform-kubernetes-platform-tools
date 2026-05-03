@@ -378,11 +378,28 @@ resource "helm_release" "prometheus_stack" {
                   tags = [
                     { key = "namespace" },
                     { key = "pod" },
-                    { key = "service.name" },
-                    { key = "http.method" },
+                    { key = "service.name", value = "service_name" },
                   ]
-                  filterByTraceID = true
+                  filterByTraceID = false
                   filterBySpanID  = false
+                }
+                tracesToMetrics = {
+                  datasourceUid      = "prometheus"
+                  spanStartTimeShift = "-1h"
+                  spanEndTimeShift   = "1h"
+                  tags = [
+                    { key = "service.name", value = "service" },
+                  ]
+                  queries = [
+                    {
+                      name  = "Span calls"
+                      query = "sum(rate(traces_spanmetrics_calls_total{$$__tags}[5m]))"
+                    },
+                    {
+                      name  = "Span latency p95"
+                      query = "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{$$__tags}[5m])) by (le))"
+                    }
+                  ]
                 }
                 serviceMap = {
                   datasourceUid = "prometheus"
@@ -589,6 +606,10 @@ resource "helm_release" "tempo" {
         metricsGenerator = {
           enabled = var.enable_tempo_metrics_generator
           processor = var.enable_tempo_metrics_generator ? {
+            local_blocks = {
+              filter_server_spans = false
+              flush_to_storage    = true
+            }
             service_graphs = {}
             span_metrics   = {}
           } : {}
@@ -604,7 +625,7 @@ resource "helm_release" "tempo" {
         overrides = {
           defaults = var.enable_tempo_metrics_generator ? {
             metrics_generator = {
-              processors = ["service-graphs", "span-metrics"]
+              processors = ["service-graphs", "span-metrics", "local-blocks"]
             }
           } : {}
           per_tenant_override_config = "/conf/overrides.yaml"
