@@ -723,7 +723,7 @@ resource "helm_release" "promtail" {
                   },
                   {
                     regex = {
-                      expression = "^00-(?P<trace_id>[0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$"
+                      expression = "^00-(?P<trace_id>[0-9a-f]{32})-(?P<span_id>[0-9a-f]{16})-[0-9a-f]{2}$"
                       source     = "traceparent"
                     }
                   },
@@ -741,6 +741,7 @@ resource "helm_release" "promtail" {
                       path             = ""
                       request_id       = ""
                       route_name       = ""
+                      span_id          = ""
                       trace_id         = ""
                       traceparent      = ""
                       upstream_cluster = ""
