@@ -172,7 +172,7 @@ variable "enable_tempo_metrics_generator" {
 }
 
 variable "enable_istio_pod_monitors" {
-  description = "Create PodMonitors for Istio control plane, gateways, waypoints, and ztunnel so Kiali can render traffic."
+  description = "Create Istio metrics Services and monitors for the control plane, gateways, waypoints, and ztunnel so Kiali can render traffic."
   type        = bool
   default     = true
 }

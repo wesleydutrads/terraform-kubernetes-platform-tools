@@ -70,8 +70,56 @@ ${local.public_hosts_service_entry}
       resolution: DNS
     YAML
   istio_pod_monitors_manifest        = <<-YAML
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: istio-ztunnel-metrics
+      namespace: ${var.istio_root_namespace}
+      labels:
+        release: monitoring
+        istio-metrics: ztunnel
+    spec:
+      selector:
+        app: ztunnel
+      ports:
+        - name: ztunnel-stats
+          port: 15020
+          targetPort: 15020
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: public-istio-metrics
+      namespace: ${var.istio_root_namespace}
+      labels:
+        release: monitoring
+        istio-metrics: gateway
+    spec:
+      selector:
+        gateway.networking.k8s.io/gateway-name: ${var.gateway_name}
+      ports:
+        - name: http-envoy-prom
+          port: 15090
+          targetPort: 15090
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: egress-waypoint-metrics
+      namespace: ${var.istio_root_namespace}
+      labels:
+        release: monitoring
+        istio-metrics: gateway
+    spec:
+      selector:
+        gateway.networking.k8s.io/gateway-name: egress-waypoint
+      ports:
+        - name: http-envoy-prom
+          port: 15090
+          targetPort: 15090
+    ---
     apiVersion: monitoring.coreos.com/v1
-    kind: PodMonitor
+    kind: ServiceMonitor
     metadata:
       name: istio-ztunnel
       namespace: ${var.namespace}
@@ -83,33 +131,33 @@ ${local.public_hosts_service_entry}
           - ${var.istio_root_namespace}
       selector:
         matchLabels:
-          app: ztunnel
-      podMetricsEndpoints:
+          istio-metrics: ztunnel
+      endpoints:
         - port: ztunnel-stats
           path: /stats/prometheus
           interval: 15s
     ---
     apiVersion: monitoring.coreos.com/v1
-    kind: PodMonitor
+    kind: ServiceMonitor
     metadata:
-      name: istio-proxies
+      name: istio-gateways
       namespace: ${var.namespace}
       labels:
         release: monitoring
     spec:
       namespaceSelector:
-        any: true
+        matchNames:
+          - ${var.istio_root_namespace}
       selector:
-        matchExpressions:
-          - key: service.istio.io/canonical-name
-            operator: Exists
-      podMetricsEndpoints:
+        matchLabels:
+          istio-metrics: gateway
+      endpoints:
         - port: http-envoy-prom
           path: /stats/prometheus
           interval: 15s
     ---
     apiVersion: monitoring.coreos.com/v1
-    kind: PodMonitor
+    kind: ServiceMonitor
     metadata:
       name: istiod
       namespace: ${var.namespace}
@@ -122,7 +170,7 @@ ${local.public_hosts_service_entry}
       selector:
         matchLabels:
           app: istiod
-      podMetricsEndpoints:
+      endpoints:
         - port: http-monitoring
           path: /metrics
           interval: 15s
@@ -318,6 +366,11 @@ resource "helm_release" "prometheus_stack" {
       prometheus = {
         prometheusSpec = {
           retention = "12h"
+          podMetadata = {
+            labels = {
+              "istio.io/dataplane-mode" = "none"
+            }
+          }
           storageSpec = var.enable_prometheus_persistence ? {
             volumeClaimTemplate = {
               spec = {
@@ -727,7 +780,7 @@ resource "null_resource" "istio_pod_monitors" {
   }
 
   provisioner "local-exec" {
-    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.istio_pod_monitors_manifest}\nYAML"
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} delete podmonitor istio-ztunnel istio-proxies istiod -n ${var.namespace} --ignore-not-found && ${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.istio_pod_monitors_manifest}\nYAML"
   }
 
   depends_on = [helm_release.prometheus_stack]

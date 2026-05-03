@@ -16,6 +16,8 @@
 - Added Promtail log collection, Istio PodMonitors, and mesh tracing configuration for Grafana, Loki, Tempo, and Kiali traffic views.
 - Raised default Loki ingestion limits for small-cluster bootstrap backfill from Promtail.
 - Enabled Tempo metrics-generator by default for Grafana trace metrics and service maps.
+- Replaced Istio pod-IP metric scrapes with named metrics Services and ServiceMonitors to reduce `unknown` edges in Kiali when namespaces use an ambient waypoint.
+- Labeled the Prometheus pod with `istio.io/dataplane-mode=none` so technical metric scrapes do not appear as application traffic through the ambient waypoint.
 
 ### Decisions
 
