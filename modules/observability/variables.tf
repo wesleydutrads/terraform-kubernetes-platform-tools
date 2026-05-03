@@ -111,6 +111,12 @@ variable "kiali_readonly_service_account_name" {
   default     = "kiali-readonly"
 }
 
+variable "kiali_login_token_expiration_seconds" {
+  description = "Kiali login token lifetime. Increase this for long observation sessions in the Kiali UI."
+  type        = number
+  default     = 604800
+}
+
 variable "enable_grafana_anonymous_viewer" {
   description = "Enable Grafana anonymous Viewer access. If enable_monitoring_token_policy=true, this remains behind the shared Gateway token."
   type        = bool

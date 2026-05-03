@@ -1,15 +1,19 @@
 locals {
-  kubeconfig_path            = pathexpand(var.kubeconfig_path)
-  tracing_host               = var.hosts.tracing
-  tracing_backend            = var.enable_tempo ? "monitoring-grafana" : "jaeger"
-  tracing_backend_port       = var.enable_tempo ? 80 : 16686
-  oidc_issuer_host           = local.oidc_enabled ? regex("^https?://([^/]+)", var.oidc.issuer_url)[0] : null
-  monitoring_public_hosts    = distinct([var.hosts.kiali, var.hosts.grafana, local.tracing_host])
-  egress_public_hosts        = distinct(compact(concat(local.monitoring_public_hosts, [local.oidc_issuer_host])))
-  public_hosts_policy        = join("\n", [for host in local.monitoring_public_hosts : "                  - ${host}"])
-  public_hosts_service_entry = join("\n", [for host in local.egress_public_hosts : "        - ${host}"])
-  oidc_enabled               = var.oidc != null
-  kiali_discovery_override   = local.oidc_enabled ? try(var.oidc.kiali_discovery_override, null) : null
+  kubeconfig_path             = pathexpand(var.kubeconfig_path)
+  tracing_host                = var.hosts.tracing
+  tracing_backend             = var.enable_tempo ? "monitoring-grafana" : "jaeger"
+  tracing_backend_port        = var.enable_tempo ? 80 : 16686
+  oidc_issuer_host            = local.oidc_enabled ? regex("^https?://([^/]+)", var.oidc.issuer_url)[0] : null
+  monitoring_public_hosts     = distinct([var.hosts.kiali, var.hosts.grafana, local.tracing_host])
+  egress_public_hosts         = distinct(compact(concat(local.monitoring_public_hosts, [local.oidc_issuer_host])))
+  public_hosts_policy         = join("\n", [for host in local.monitoring_public_hosts : "                  - ${host}"])
+  public_hosts_service_entry  = join("\n", [for host in local.egress_public_hosts : "        - ${host}"])
+  oidc_enabled                = var.oidc != null
+  loki_storage_endpoint_host  = var.loki_storage == null ? null : nonsensitive(replace(replace(var.loki_storage.endpoint, "https://", ""), "http://", ""))
+  tempo_storage_endpoint_host = var.tempo_storage == null ? null : nonsensitive(replace(replace(var.tempo_storage.endpoint, "https://", ""), "http://", ""))
+  storage_endpoint_hosts      = distinct(compact([local.loki_storage_endpoint_host, local.tempo_storage_endpoint_host]))
+  storage_service_entry_hosts = join("\n", [for host in local.storage_endpoint_hosts : "        - ${host}"])
+  kiali_discovery_override    = local.oidc_enabled ? try(var.oidc.kiali_discovery_override, null) : null
   kiali_discovery_override_values = local.kiali_discovery_override == null ? {} : {
     discovery_override = merge(
       try(local.kiali_discovery_override.authorization_endpoint, null) == null ? {} : {
@@ -67,6 +71,24 @@ ${local.public_hosts_service_entry}
         - number: 443
           name: https
           protocol: HTTPS
+      resolution: DNS
+    YAML
+  storage_service_entry_manifest     = <<-YAML
+    apiVersion: networking.istio.io/v1
+    kind: ServiceEntry
+    metadata:
+      name: observability-object-storage
+      namespace: ${var.istio_root_namespace}
+    spec:
+      exportTo:
+        - "."
+      hosts:
+${local.storage_service_entry_hosts}
+      location: MESH_EXTERNAL
+      ports:
+        - number: 443
+          name: https
+          protocol: TLS
       resolution: DNS
     YAML
   istio_pod_monitors_manifest        = <<-YAML
@@ -634,6 +656,9 @@ resource "helm_release" "kiali" {
           disable_rbac   = true
         }, local.kiali_discovery_override_values)
       } : {})
+      login_token = {
+        expiration_seconds = var.kiali_login_token_expiration_seconds
+      }
       external_services = {
         prometheus = {
           url = "http://monitoring-kube-prometheus-prometheus.${var.namespace}.svc:9090"
@@ -767,6 +792,20 @@ resource "null_resource" "public_host_service_entries" {
 
   provisioner "local-exec" {
     command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.public_host_service_entry_manifest}\nYAML"
+  }
+
+  depends_on = [kubernetes_namespace_v1.this]
+}
+
+resource "null_resource" "storage_service_entries" {
+  count = var.enabled && length(local.storage_endpoint_hosts) > 0 ? 1 : 0
+
+  triggers = {
+    manifest_sha = sha1(nonsensitive(local.storage_service_entry_manifest))
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${nonsensitive(local.storage_service_entry_manifest)}\nYAML"
   }
 
   depends_on = [kubernetes_namespace_v1.this]

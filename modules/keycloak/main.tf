@@ -67,6 +67,29 @@ locals {
           protocol: HTTPS
       resolution: DNS
     YAML
+
+  database_service_entry_manifest = var.database_host == null ? "" : <<-YAML
+    apiVersion: networking.istio.io/v1
+    kind: ServiceEntry
+    metadata:
+      name: keycloak-mysql
+      namespace: ${var.gateway_namespace}
+    spec:
+      exportTo:
+        - "."
+      hosts:
+        - keycloak-mysql.mesh-external.local
+      addresses:
+        - ${var.database_host}/32
+      location: MESH_EXTERNAL
+      ports:
+        - number: ${var.database_port}
+          name: mysql
+          protocol: TCP
+      resolution: STATIC
+      endpoints:
+        - address: ${var.database_host}
+    YAML
 }
 
 resource "kubernetes_namespace_v1" "this" {
@@ -339,6 +362,20 @@ resource "null_resource" "public_host_service_entry" {
 
   provisioner "local-exec" {
     command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.service_entry_manifest}\nYAML"
+  }
+
+  depends_on = [kubernetes_service_v1.this]
+}
+
+resource "null_resource" "database_service_entry" {
+  count = var.enabled && var.database_host != null ? 1 : 0
+
+  triggers = {
+    manifest_sha = sha1(local.database_service_entry_manifest)
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.database_service_entry_manifest}\nYAML"
   }
 
   depends_on = [kubernetes_service_v1.this]
