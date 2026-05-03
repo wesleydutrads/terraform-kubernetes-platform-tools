@@ -47,3 +47,18 @@ output "grafana_readonly_mode" {
   description = "Grafana read-only access mode."
   value       = var.enabled && var.enable_prometheus_stack && var.enable_grafana_anonymous_viewer ? (var.enable_monitoring_token_policy ? "anonymous-viewer-behind-shared-gateway-token" : "anonymous-viewer") : null
 }
+
+output "opentelemetry_collector_endpoint" {
+  description = "Internal OTLP HTTP endpoint for application telemetry."
+  value       = var.enabled && var.enable_opentelemetry_collector_gateway ? "http://${var.opentelemetry_collector_name}.${var.namespace}.svc.cluster.local:4318" : null
+}
+
+output "opentelemetry_instrumentation_ref" {
+  description = "Namespace/name reference for OpenTelemetry auto-instrumentation annotations."
+  value       = var.enabled && var.enable_opentelemetry_instrumentation ? "${var.namespace}/${var.opentelemetry_instrumentation_name}" : null
+}
+
+output "opentelemetry_demo_url" {
+  description = "Public OpenTelemetry Demo URL when the route is enabled."
+  value       = var.enabled && var.enable_opentelemetry_demo && var.enable_opentelemetry_demo_route ? "https://${coalesce(var.opentelemetry_demo_host, replace(var.hosts.grafana, "/^grafana\\./", "otel-demo."))}" : null
+}

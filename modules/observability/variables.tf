@@ -171,6 +171,96 @@ variable "enable_tempo" {
   default     = true
 }
 
+variable "enable_opentelemetry_operator" {
+  description = "Install the OpenTelemetry Operator for auto-instrumentation and Collector CRDs."
+  type        = bool
+  default     = false
+}
+
+variable "opentelemetry_operator_chart_version" {
+  description = "OpenTelemetry Operator Helm chart version."
+  type        = string
+  default     = "0.111.0"
+}
+
+variable "enable_opentelemetry_collector_gateway" {
+  description = "Install an OpenTelemetry Collector gateway that receives application OTLP telemetry and forwards it to Tempo, Prometheus, and Loki."
+  type        = bool
+  default     = false
+}
+
+variable "opentelemetry_collector_chart_version" {
+  description = "OpenTelemetry Collector Helm chart version."
+  type        = string
+  default     = "0.153.0"
+}
+
+variable "opentelemetry_collector_name" {
+  description = "Name for the shared OpenTelemetry Collector gateway service."
+  type        = string
+  default     = "otel-collector"
+}
+
+variable "enable_opentelemetry_instrumentation" {
+  description = "Create an OpenTelemetry Instrumentation CR for Kubernetes auto-instrumentation."
+  type        = bool
+  default     = false
+}
+
+variable "opentelemetry_instrumentation_name" {
+  description = "Name of the OpenTelemetry Instrumentation CR."
+  type        = string
+  default     = "platform"
+}
+
+variable "enable_bookinfo_opentelemetry_annotations" {
+  description = "Annotate supported Bookinfo deployments for OpenTelemetry Operator auto-instrumentation."
+  type        = bool
+  default     = false
+}
+
+variable "enable_opentelemetry_demo" {
+  description = "Install the official OpenTelemetry Demo application for observability labs."
+  type        = bool
+  default     = false
+}
+
+variable "opentelemetry_demo_use_central_waypoint" {
+  description = "Enroll the OpenTelemetry Demo namespace to use the shared Istio ambient waypoint."
+  type        = bool
+  default     = true
+}
+
+variable "central_egress_waypoint_name" {
+  description = "Name of the shared Istio ambient waypoint used by the OpenTelemetry Demo namespace."
+  type        = string
+  default     = "egress-waypoint"
+}
+
+variable "opentelemetry_demo_chart_version" {
+  description = "OpenTelemetry Demo Helm chart version."
+  type        = string
+  default     = "0.40.7"
+}
+
+variable "opentelemetry_demo_namespace" {
+  description = "Namespace for the OpenTelemetry Demo application."
+  type        = string
+  default     = "otel-demo"
+}
+
+variable "opentelemetry_demo_host" {
+  description = "Optional public hostname for the OpenTelemetry Demo frontend."
+  type        = string
+  default     = null
+}
+
+variable "enable_opentelemetry_demo_route" {
+  description = "Create a public HTTPRoute for the OpenTelemetry Demo frontend."
+  type        = bool
+  default     = false
+}
+
 variable "enable_tempo_metrics_generator" {
   description = "Enable Tempo metrics-generator so Grafana can query trace-derived metrics and service maps."
   type        = bool

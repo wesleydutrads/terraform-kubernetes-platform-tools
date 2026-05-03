@@ -3,8 +3,9 @@ locals {
   tracing_host                = var.hosts.tracing
   tracing_backend             = var.enable_tempo ? "monitoring-grafana" : "jaeger"
   tracing_backend_port        = var.enable_tempo ? 80 : 16686
+  opentelemetry_demo_host     = coalesce(var.opentelemetry_demo_host, replace(var.hosts.grafana, "/^grafana\\./", "otel-demo."))
   oidc_issuer_host            = local.oidc_enabled ? regex("^https?://([^/]+)", var.oidc.issuer_url)[0] : null
-  monitoring_public_hosts     = distinct([var.hosts.kiali, var.hosts.grafana, local.tracing_host])
+  monitoring_public_hosts     = distinct(compact(concat([var.hosts.kiali, var.hosts.grafana, local.tracing_host], var.enable_opentelemetry_demo_route ? [local.opentelemetry_demo_host] : [])))
   egress_public_hosts         = distinct(compact(concat(local.monitoring_public_hosts, [local.oidc_issuer_host])))
   public_hosts_policy         = join("\n", [for host in local.monitoring_public_hosts : "                  - ${host}"])
   public_hosts_service_entry  = join("\n", [for host in local.egress_public_hosts : "        - ${host}"])
@@ -30,7 +31,59 @@ locals {
       }
     )
   }
-  token_policy_manifest              = <<-YAML
+  opentelemetry_instrumentation_ref      = "${var.namespace}/${var.opentelemetry_instrumentation_name}"
+  opentelemetry_collector_endpoint       = "http://${var.opentelemetry_collector_name}.${var.namespace}.svc.cluster.local:4318"
+  opentelemetry_instrumentation_manifest = <<-YAML
+    apiVersion: opentelemetry.io/v1alpha1
+    kind: Instrumentation
+    metadata:
+      name: ${var.opentelemetry_instrumentation_name}
+      namespace: ${var.namespace}
+    spec:
+      exporter:
+        endpoint: ${local.opentelemetry_collector_endpoint}
+      propagators:
+        - tracecontext
+        - baggage
+      sampler:
+        type: parentbased_traceidratio
+        argument: "1"
+      resource:
+        addK8sUIDAttributes: true
+      env:
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: http/protobuf
+        - name: OTEL_LOGS_EXPORTER
+          value: otlp
+        - name: OTEL_METRICS_EXPORTER
+          value: otlp
+        - name: OTEL_TRACES_EXPORTER
+          value: otlp
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: deployment.environment.name=lab,k8s.cluster.name=oke-always-free
+    YAML
+  opentelemetry_demo_route_manifest      = <<-YAML
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      name: otel-demo
+      namespace: ${var.opentelemetry_demo_namespace}
+%{if var.external_dns_target != null~}
+      annotations:
+        external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}
+%{endif~}
+    spec:
+      parentRefs:
+        - name: ${var.gateway_name}
+          namespace: ${var.gateway_namespace}
+      hostnames:
+        - ${local.opentelemetry_demo_host}
+      rules:
+        - backendRefs:
+            - name: frontend-proxy
+              port: 8080
+    YAML
+  token_policy_manifest                  = <<-YAML
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -52,7 +105,7 @@ ${local.public_hosts_policy}
               notValues:
                 - ${var.monitoring_token}
     YAML
-  public_host_service_entry_manifest = <<-YAML
+  public_host_service_entry_manifest     = <<-YAML
     apiVersion: networking.istio.io/v1
     kind: ServiceEntry
     metadata:
@@ -73,7 +126,7 @@ ${local.public_hosts_service_entry}
           protocol: HTTPS
       resolution: DNS
     YAML
-  storage_service_entry_manifest     = <<-YAML
+  storage_service_entry_manifest         = <<-YAML
     apiVersion: networking.istio.io/v1
     kind: ServiceEntry
     metadata:
@@ -91,7 +144,7 @@ ${local.storage_service_entry_hosts}
           protocol: TLS
       resolution: DNS
     YAML
-  istio_pod_monitors_manifest        = <<-YAML
+  istio_pod_monitors_manifest            = <<-YAML
     apiVersion: v1
     kind: Service
     metadata:
@@ -197,7 +250,7 @@ ${local.storage_service_entry_hosts}
           path: /metrics
           interval: 15s
     YAML
-  kiali_route_manifest               = <<-YAML
+  kiali_route_manifest                   = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
     metadata:
@@ -226,7 +279,7 @@ ${local.storage_service_entry_hosts}
             - name: kiali
               port: 20001
     YAML
-  grafana_route_manifest             = <<-YAML
+  grafana_route_manifest                 = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
     metadata:
@@ -247,7 +300,7 @@ ${local.storage_service_entry_hosts}
             - name: monitoring-grafana
               port: 80
     YAML
-  tracing_route_manifest             = <<-YAML
+  tracing_route_manifest                 = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
     metadata:
@@ -278,6 +331,27 @@ resource "kubernetes_namespace_v1" "this" {
     labels = {
       "istio.io/dataplane-mode" = "ambient"
     }
+  }
+
+  lifecycle {
+    ignore_changes = [metadata[0].labels]
+  }
+}
+
+resource "kubernetes_namespace_v1" "opentelemetry_demo" {
+  count = var.enabled && var.enable_opentelemetry_demo ? 1 : 0
+
+  metadata {
+    name = var.opentelemetry_demo_namespace
+    labels = merge(
+      {
+        "istio.io/dataplane-mode" = "ambient"
+      },
+      var.opentelemetry_demo_use_central_waypoint ? {
+        "istio.io/use-waypoint"           = var.central_egress_waypoint_name
+        "istio.io/use-waypoint-namespace" = var.istio_root_namespace
+      } : {}
+    )
   }
 
   lifecycle {
@@ -728,6 +802,270 @@ resource "helm_release" "tempo" {
   ]
 }
 
+resource "helm_release" "opentelemetry_operator" {
+  count            = var.enabled && var.enable_opentelemetry_operator ? 1 : 0
+  name             = "opentelemetry-operator"
+  repository       = "https://open-telemetry.github.io/opentelemetry-helm-charts"
+  chart            = "opentelemetry-operator"
+  version          = var.opentelemetry_operator_chart_version
+  namespace        = kubernetes_namespace_v1.this[0].metadata[0].name
+  create_namespace = false
+
+  values = [
+    yamlencode({
+      manager = {
+        resources = {
+          requests = {
+            cpu    = "20m"
+            memory = "64Mi"
+          }
+          limits = {
+            memory = "192Mi"
+          }
+        }
+        serviceMonitor = {
+          enabled = var.enable_prometheus_stack
+          extraLabels = {
+            release = "monitoring"
+          }
+        }
+      }
+      admissionWebhooks = {
+        certManager = {
+          enabled = true
+        }
+      }
+    })
+  ]
+}
+
+resource "helm_release" "opentelemetry_collector_gateway" {
+  count            = var.enabled && var.enable_opentelemetry_collector_gateway ? 1 : 0
+  name             = var.opentelemetry_collector_name
+  repository       = "https://open-telemetry.github.io/opentelemetry-helm-charts"
+  chart            = "opentelemetry-collector"
+  version          = var.opentelemetry_collector_chart_version
+  namespace        = kubernetes_namespace_v1.this[0].metadata[0].name
+  create_namespace = false
+
+  values = [
+    yamlencode({
+      fullnameOverride = var.opentelemetry_collector_name
+      mode             = "deployment"
+      replicaCount     = 1
+      image = {
+        repository = "docker.io/otel/opentelemetry-collector-contrib"
+      }
+      ports = {
+        otlp = {
+          enabled       = true
+          containerPort = 4317
+          servicePort   = 4317
+          protocol      = "TCP"
+          appProtocol   = "grpc"
+        }
+        "otlp-http" = {
+          enabled       = true
+          containerPort = 4318
+          servicePort   = 4318
+          protocol      = "TCP"
+        }
+        metrics = {
+          enabled       = true
+          containerPort = 8888
+          servicePort   = 8888
+          protocol      = "TCP"
+        }
+        "jaeger-compact" = {
+          enabled = false
+        }
+        "jaeger-thrift" = {
+          enabled = false
+        }
+        "jaeger-grpc" = {
+          enabled = false
+        }
+        zipkin = {
+          enabled = false
+        }
+      }
+      resources = {
+        requests = {
+          cpu    = "50m"
+          memory = "128Mi"
+        }
+        limits = {
+          memory = "384Mi"
+        }
+      }
+      serviceMonitor = {
+        enabled = var.enable_prometheus_stack
+        extraLabels = {
+          release = "monitoring"
+        }
+      }
+      alternateConfig = {
+        extensions = {
+          health_check = {
+            endpoint = "0.0.0.0:13133"
+          }
+        }
+        receivers = {
+          otlp = {
+            protocols = {
+              grpc = {
+                endpoint = "0.0.0.0:4317"
+              }
+              http = {
+                endpoint = "0.0.0.0:4318"
+              }
+            }
+          }
+        }
+        processors = {
+          memory_limiter = {
+            check_interval         = "5s"
+            limit_percentage       = 80
+            spike_limit_percentage = 25
+          }
+          resource = {
+            attributes = [
+              {
+                key    = "k8s.cluster.name"
+                value  = "oke-always-free"
+                action = "upsert"
+              },
+              {
+                key    = "deployment.environment.name"
+                value  = "lab"
+                action = "upsert"
+              }
+            ]
+          }
+          batch = {}
+        }
+        exporters = merge(
+          var.enable_tempo ? {
+            "otlp_http/tempo" = {
+              endpoint = "http://tempo.${var.namespace}.svc.cluster.local:4318"
+              tls = {
+                insecure = true
+              }
+            }
+          } : {},
+          var.enable_prometheus_stack ? {
+            prometheusremotewrite = {
+              endpoint = "http://monitoring-kube-prometheus-prometheus.${var.namespace}.svc.cluster.local:9090/api/v1/write"
+              tls = {
+                insecure = true
+              }
+              resource_to_telemetry_conversion = {
+                enabled = true
+              }
+            }
+          } : {},
+          var.enable_loki ? {
+            "otlp_http/loki" = {
+              endpoint = "http://loki-gateway.${var.namespace}.svc.cluster.local/otlp"
+              tls = {
+                insecure = true
+              }
+            }
+          } : {}
+        )
+        service = {
+          extensions = ["health_check"]
+          pipelines = merge(
+            var.enable_tempo ? {
+              traces = {
+                receivers  = ["otlp"]
+                processors = ["memory_limiter", "resource", "batch"]
+                exporters  = ["otlp_http/tempo"]
+              }
+            } : {},
+            var.enable_prometheus_stack ? {
+              metrics = {
+                receivers  = ["otlp"]
+                processors = ["memory_limiter", "resource", "batch"]
+                exporters  = ["prometheusremotewrite"]
+              }
+            } : {},
+            var.enable_loki ? {
+              logs = {
+                receivers  = ["otlp"]
+                processors = ["memory_limiter", "resource", "batch"]
+                exporters  = ["otlp_http/loki"]
+              }
+            } : {}
+          )
+          telemetry = {
+            metrics = {
+              readers = [
+                {
+                  pull = {
+                    exporter = {
+                      prometheus = {
+                        host = "0.0.0.0"
+                        port = 8888
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    })
+  ]
+
+  depends_on = [helm_release.tempo, helm_release.loki, helm_release.prometheus_stack]
+}
+
+resource "null_resource" "opentelemetry_instrumentation" {
+  count = var.enabled && var.enable_opentelemetry_operator && var.enable_opentelemetry_collector_gateway && var.enable_opentelemetry_instrumentation ? 1 : 0
+
+  triggers = {
+    manifest_sha         = sha1(local.opentelemetry_instrumentation_manifest)
+    instrumentation_name = var.opentelemetry_instrumentation_name
+    instrumentation_ns   = var.namespace
+    kubeconfig_path      = local.kubeconfig_path
+    kubectl_path         = var.kubectl_path
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.opentelemetry_instrumentation_manifest}\nYAML"
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete instrumentation ${self.triggers.instrumentation_name} -n ${self.triggers.instrumentation_ns} --ignore-not-found"
+  }
+
+  depends_on = [helm_release.opentelemetry_operator, helm_release.opentelemetry_collector_gateway]
+}
+
+resource "null_resource" "bookinfo_opentelemetry_annotations" {
+  count = var.enabled && var.enable_bookinfo_opentelemetry_annotations && var.enable_opentelemetry_instrumentation ? 1 : 0
+
+  triggers = {
+    instrumentation_ref = local.opentelemetry_instrumentation_ref
+    kubeconfig_path     = local.kubeconfig_path
+    kubectl_path        = var.kubectl_path
+  }
+
+  provisioner "local-exec" {
+    command = join(" && ", [
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} annotate deployment productpage-v1 -n default instrumentation.opentelemetry.io/inject-python=${local.opentelemetry_instrumentation_ref} --overwrite",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} annotate deployment ratings-v1 -n default instrumentation.opentelemetry.io/inject-nodejs=${local.opentelemetry_instrumentation_ref} --overwrite",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} annotate deployment reviews-v1 reviews-v2 reviews-v3 -n default instrumentation.opentelemetry.io/inject-java=${local.opentelemetry_instrumentation_ref} --overwrite",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} rollout restart deployment productpage-v1 ratings-v1 reviews-v1 reviews-v2 reviews-v3 -n default"
+    ])
+  }
+
+  depends_on = [null_resource.opentelemetry_instrumentation]
+}
+
 resource "helm_release" "jaeger" {
   count            = var.enabled && var.enable_jaeger ? 1 : 0
   name             = "jaeger"
@@ -763,6 +1101,142 @@ resource "helm_release" "jaeger" {
       }
     })
   ]
+}
+
+resource "helm_release" "opentelemetry_demo" {
+  count            = var.enabled && var.enable_opentelemetry_demo ? 1 : 0
+  name             = "otel-demo"
+  repository       = "https://open-telemetry.github.io/opentelemetry-helm-charts"
+  chart            = "opentelemetry-demo"
+  version          = var.opentelemetry_demo_chart_version
+  namespace        = kubernetes_namespace_v1.opentelemetry_demo[0].metadata[0].name
+  create_namespace = false
+
+  values = [
+    yamlencode({
+      default = {
+        envOverrides = [
+          {
+            name  = "OTEL_COLLECTOR_NAME"
+            value = "${var.opentelemetry_collector_name}.${var.namespace}.svc.cluster.local"
+          },
+          {
+            name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+            value = "http://${var.opentelemetry_collector_name}.${var.namespace}.svc.cluster.local:4318"
+          }
+        ]
+      }
+      components = {
+        accounting = {
+          initContainers = [
+            {
+              name    = "wait-for-kafka"
+              image   = "docker.io/library/busybox:latest"
+              command = ["sh", "-c", "until nc -z -v -w30 kafka 9092; do echo waiting for kafka; sleep 2; done;"]
+            }
+          ]
+        }
+        cart = {
+          initContainers = [
+            {
+              name    = "wait-for-valkey-cart"
+              image   = "docker.io/library/busybox:latest"
+              command = ["sh", "-c", "until nc -z -v -w30 valkey-cart 6379; do echo waiting for valkey-cart; sleep 2; done;"]
+            }
+          ]
+        }
+        checkout = {
+          initContainers = [
+            {
+              name    = "wait-for-kafka"
+              image   = "docker.io/library/busybox:latest"
+              command = ["sh", "-c", "until nc -z -v -w30 kafka 9092; do echo waiting for kafka; sleep 2; done;"]
+            }
+          ]
+        }
+        "fraud-detection" = {
+          initContainers = [
+            {
+              name    = "wait-for-kafka"
+              image   = "docker.io/library/busybox:latest"
+              command = ["sh", "-c", "until nc -z -v -w30 kafka 9092; do echo waiting for kafka; sleep 2; done;"]
+            }
+          ]
+        }
+        flagd = {
+          initContainers = [
+            {
+              name    = "init-config"
+              image   = "docker.io/library/busybox:latest"
+              command = ["sh", "-c", "cp /config-ro/demo.flagd.json /config-rw/demo.flagd.json && cat /config-rw/demo.flagd.json"]
+              volumeMounts = [
+                {
+                  mountPath = "/config-ro"
+                  name      = "config-ro"
+                },
+                {
+                  mountPath = "/config-rw"
+                  name      = "config-rw"
+                }
+              ]
+            }
+          ]
+        }
+        postgresql = {
+          imageOverride = {
+            repository = "docker.io/library/postgres"
+            tag        = "17.6"
+          }
+        }
+        "valkey-cart" = {
+          imageOverride = {
+            repository = "docker.io/valkey/valkey"
+            tag        = "9.0.1-alpine3.23"
+          }
+        }
+      }
+      "opentelemetry-collector" = {
+        enabled = false
+      }
+      jaeger = {
+        enabled = false
+      }
+      prometheus = {
+        enabled = false
+      }
+      grafana = {
+        enabled = false
+      }
+      opensearch = {
+        enabled = false
+      }
+    })
+  ]
+
+  depends_on = [helm_release.opentelemetry_collector_gateway]
+}
+
+resource "null_resource" "opentelemetry_demo_route" {
+  count = var.enabled && var.enable_opentelemetry_demo && var.enable_opentelemetry_demo_route ? 1 : 0
+
+  triggers = {
+    manifest_sha    = sha1(local.opentelemetry_demo_route_manifest)
+    name            = "otel-demo"
+    namespace       = var.opentelemetry_demo_namespace
+    kubeconfig_path = local.kubeconfig_path
+    kubectl_path    = var.kubectl_path
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.opentelemetry_demo_route_manifest}\nYAML"
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete httproute ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+  }
+
+  depends_on = [helm_release.opentelemetry_demo]
 }
 
 resource "helm_release" "kiali" {
