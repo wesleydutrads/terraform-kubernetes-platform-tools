@@ -255,6 +255,12 @@ variable "opentelemetry_demo_host" {
   default     = null
 }
 
+variable "opentelemetry_demo_enable_browser_traffic" {
+  description = "Enable Playwright browser users in the OpenTelemetry Demo load generator. Browser background traffic can create external Google connections that appear as unknown in Istio/Kiali."
+  type        = bool
+  default     = false
+}
+
 variable "enable_opentelemetry_demo_route" {
   description = "Create a public HTTPRoute for the OpenTelemetry Demo frontend."
   type        = bool

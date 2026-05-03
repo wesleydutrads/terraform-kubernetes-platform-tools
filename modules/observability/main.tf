@@ -1177,6 +1177,14 @@ resource "helm_release" "opentelemetry_demo" {
             }
           ]
         }
+        "load-generator" = {
+          envOverrides = [
+            {
+              name  = "LOCUST_BROWSER_TRAFFIC_ENABLED"
+              value = tostring(var.opentelemetry_demo_enable_browser_traffic)
+            }
+          ]
+        }
         flagd = {
           initContainers = [
             {
