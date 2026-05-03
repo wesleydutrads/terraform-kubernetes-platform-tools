@@ -648,9 +648,45 @@ resource "helm_release" "promtail" {
         clients = [
           {
             url = "http://loki-gateway.${var.namespace}.svc.cluster.local/loki/api/v1/push"
+            external_labels = {
+              cluster     = "oke-always-free"
+              environment = "lab"
+            }
           }
         ]
         snippets = {
+          extraRelabelConfigs = [
+            {
+              action        = "replace"
+              source_labels = ["__meta_kubernetes_namespace"]
+              target_label  = "service_namespace"
+            },
+            {
+              action = "replace"
+              source_labels = [
+                "__meta_kubernetes_pod_label_app_kubernetes_io_name",
+                "__meta_kubernetes_pod_label_app",
+                "__tmp_controller_name",
+                "__meta_kubernetes_pod_name"
+              ]
+              regex        = "^;*([^;]+)(;.*)?$"
+              target_label = "service_name"
+            },
+            {
+              action        = "replace"
+              source_labels = ["__tmp_controller_name"]
+              target_label  = "workload"
+            },
+            {
+              action = "replace"
+              source_labels = [
+                "__meta_kubernetes_pod_label_app_kubernetes_io_part_of",
+                "__meta_kubernetes_pod_label_app_kubernetes_io_instance"
+              ]
+              regex        = "^;*([^;]+)(;.*)?$"
+              target_label = "part_of"
+            }
+          ]
           pipelineStages = [
             {
               cri = {}
