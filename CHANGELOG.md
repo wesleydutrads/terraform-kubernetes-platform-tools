@@ -12,6 +12,7 @@
 - Added OIDC back-channel endpoint overrides for restricted clusters and Argo CD host aliases for internal Keycloak discovery.
 - Added OCI NLB `external-ip-only` support on the public Istio Gateway service.
 - Added Keycloak-managed platform users, group assignments, and an optional permanent master realm admin user.
+- Added explicit Keycloak user required actions so temporary platform users keep `UPDATE_PASSWORD`.
 
 ### Decisions
 

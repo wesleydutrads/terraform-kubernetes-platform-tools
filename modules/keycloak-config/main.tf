@@ -66,6 +66,9 @@ resource "keycloak_user" "platform" {
   first_name     = try(each.value.first_name, null)
   last_name      = try(each.value.last_name, null)
   email_verified = try(each.value.email_verified, true)
+  required_actions = try(each.value.temporary_password, true) ? [
+    "UPDATE_PASSWORD"
+  ] : []
 
   initial_password {
     value     = each.value.initial_password
@@ -100,6 +103,9 @@ resource "keycloak_user" "master_admin" {
   first_name     = try(var.master_admin_user.first_name, null)
   last_name      = try(var.master_admin_user.last_name, null)
   email_verified = try(var.master_admin_user.email_verified, true)
+  required_actions = try(var.master_admin_user.temporary_password, true) ? [
+    "UPDATE_PASSWORD"
+  ] : []
 
   initial_password {
     value     = var.master_admin_user.initial_password
