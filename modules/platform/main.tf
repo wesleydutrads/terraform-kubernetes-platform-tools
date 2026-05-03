@@ -202,10 +202,17 @@ locals {
       name: mesh-default
       namespace: ${local.istio_namespace}
     spec:
+%{if var.enable_istio_access_logs~}
+      accessLogging:
+        - providers:
+            - name: envoy
+%{endif~}
+%{if var.enable_istio_tracing~}
       tracing:
         - providers:
             - name: ${var.istio_tracing_provider_name}
           randomSamplingPercentage: ${var.istio_tracing_sampling_percentage}
+%{endif~}
     YAML
   bookinfo_manifest                = <<-YAML
     apiVersion: v1
@@ -720,21 +727,55 @@ resource "helm_release" "istiod" {
   chart      = "istiod"
   namespace  = kubernetes_namespace_v1.istio_system[0].metadata[0].name
 
-  values = var.enable_istio_tracing ? [
+  values = [
     yamlencode({
-      meshConfig = {
-        extensionProviders = [
-          {
-            name = var.istio_tracing_provider_name
-            opentelemetry = {
-              service = var.istio_tracing_service
-              port    = var.istio_tracing_port
+      meshConfig = merge(
+        var.enable_istio_access_logs ? {
+          accessLogFile     = "/dev/stdout"
+          accessLogEncoding = var.istio_access_log_encoding
+          accessLogFormat = jsonencode({
+            start_time                     = "%START_TIME%"
+            method                         = "%REQ(:METHOD)%"
+            path                           = "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+            protocol                       = "%PROTOCOL%"
+            response_code                  = "%RESPONSE_CODE%"
+            response_flags                 = "%RESPONSE_FLAGS%"
+            response_code_details          = "%RESPONSE_CODE_DETAILS%"
+            connection_termination_details = "%CONNECTION_TERMINATION_DETAILS%"
+            bytes_received                 = "%BYTES_RECEIVED%"
+            bytes_sent                     = "%BYTES_SENT%"
+            duration_ms                    = "%DURATION%"
+            upstream_service_time_ms       = "%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%"
+            x_forwarded_for                = "%REQ(X-FORWARDED-FOR)%"
+            user_agent                     = "%REQ(USER-AGENT)%"
+            request_id                     = "%REQ(X-REQUEST-ID)%"
+            trace_id                       = "%REQ(X-B3-TRACEID)%"
+            traceparent                    = "%REQ(TRACEPARENT)%"
+            authority                      = "%REQ(:AUTHORITY)%"
+            upstream_host                  = "%UPSTREAM_HOST%"
+            upstream_cluster               = "%UPSTREAM_CLUSTER_RAW%"
+            upstream_local_address         = "%UPSTREAM_LOCAL_ADDRESS%"
+            downstream_local_address       = "%DOWNSTREAM_LOCAL_ADDRESS%"
+            downstream_remote_address      = "%DOWNSTREAM_REMOTE_ADDRESS%"
+            requested_server_name          = "%REQUESTED_SERVER_NAME%"
+            route_name                     = "%ROUTE_NAME%"
+            service_name                   = "%UPSTREAM_CLUSTER_RAW%"
+          })
+        } : {},
+        var.enable_istio_tracing ? {
+          extensionProviders = [
+            {
+              name = var.istio_tracing_provider_name
+              opentelemetry = {
+                service = var.istio_tracing_service
+                port    = var.istio_tracing_port
+              }
             }
-          }
-        ]
-      }
+          ]
+        } : {}
+      )
     })
-  ] : []
+  ]
 
   set = [
     {
@@ -888,7 +929,7 @@ resource "null_resource" "central_egress_waypoint" {
 }
 
 resource "null_resource" "mesh_tracing" {
-  count = var.enabled && var.enable_istio_ambient && var.enable_istio_tracing ? 1 : 0
+  count = var.enabled && var.enable_istio_ambient && (var.enable_istio_tracing || var.enable_istio_access_logs) ? 1 : 0
 
   triggers = {
     manifest_sha    = sha1(local.mesh_tracing_manifest)

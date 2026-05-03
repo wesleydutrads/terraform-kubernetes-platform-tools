@@ -125,6 +125,23 @@ variable "istio_tracing_sampling_percentage" {
   default     = 100
 }
 
+variable "enable_istio_access_logs" {
+  description = "Enable mesh-wide Istio Envoy access logs through the Telemetry API."
+  type        = bool
+  default     = true
+}
+
+variable "istio_access_log_encoding" {
+  description = "Istio Envoy access log encoding. Use JSON for Loki/Grafana drilldown parsing."
+  type        = string
+  default     = "JSON"
+
+  validation {
+    condition     = contains(["JSON", "TEXT"], var.istio_access_log_encoding)
+    error_message = "istio_access_log_encoding must be JSON or TEXT."
+  }
+}
+
 variable "enable_public_ingress_gateway" {
   description = "Install public Istio ingress gateway."
   type        = bool

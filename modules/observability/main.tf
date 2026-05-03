@@ -380,7 +380,7 @@ resource "helm_release" "prometheus_stack" {
                     { key = "pod" },
                     { key = "service.name", value = "service_name" },
                   ]
-                  filterByTraceID = false
+                  filterByTraceID = true
                   filterBySpanID  = false
                 }
                 tracesToMetrics = {
@@ -503,9 +503,10 @@ resource "helm_release" "loki" {
           ]
         }
         limits_config = {
-          retention_period        = var.loki_retention_period
-          ingestion_rate_mb       = var.loki_ingestion_rate_mb
-          ingestion_burst_size_mb = var.loki_ingestion_burst_size_mb
+          retention_period          = var.loki_retention_period
+          ingestion_rate_mb         = var.loki_ingestion_rate_mb
+          ingestion_burst_size_mb   = var.loki_ingestion_burst_size_mb
+          allow_structured_metadata = true
         }
         compactor = {
           working_directory    = "/tmp/loki/compactor"
@@ -574,6 +575,68 @@ resource "helm_release" "promtail" {
             url = "http://loki-gateway.${var.namespace}.svc.cluster.local/loki/api/v1/push"
           }
         ]
+        snippets = {
+          pipelineStages = [
+            {
+              cri = {}
+            },
+            {
+              match = {
+                selector      = "{container=\"istio-proxy\"}"
+                pipeline_name = "istio_envoy_access_logs"
+                stages = [
+                  {
+                    json = {
+                      expressions = {
+                        authority        = "authority"
+                        duration_ms      = "duration_ms"
+                        method           = "method"
+                        path             = "path"
+                        request_id       = "request_id"
+                        response_code    = "response_code"
+                        route_name       = "route_name"
+                        trace_id         = "trace_id"
+                        traceparent      = "traceparent"
+                        upstream_cluster = "upstream_cluster"
+                        upstream_host    = "upstream_host"
+                        user_agent       = "user_agent"
+                        x_forwarded_for  = "x_forwarded_for"
+                      }
+                    }
+                  },
+                  {
+                    regex = {
+                      expression = "^(?:(?:outbound|inbound-vip)\\|[^|]*\\|[^|]*\\|)?(?P<service_name>[^|]+\\.svc\\.cluster\\.local).*$"
+                      source     = "upstream_cluster"
+                    }
+                  },
+                  {
+                    labels = {
+                      authority     = ""
+                      method        = ""
+                      response_code = ""
+                      service_name  = ""
+                    }
+                  },
+                  {
+                    structured_metadata = {
+                      duration_ms      = ""
+                      path             = ""
+                      request_id       = ""
+                      route_name       = ""
+                      trace_id         = ""
+                      traceparent      = ""
+                      upstream_cluster = ""
+                      upstream_host    = ""
+                      user_agent       = ""
+                      x_forwarded_for  = ""
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
       }
       resources = {
         requests = {
