@@ -67,6 +67,18 @@ variable "database_host" {
   default     = null
 }
 
+variable "enable_database_external_name_service" {
+  description = "Expose database_host in Kubernetes as a Service type ExternalName."
+  type        = bool
+  default     = false
+}
+
+variable "database_external_name_service_name" {
+  description = "Name of the Kubernetes ExternalName Service for the database."
+  type        = string
+  default     = "mysql"
+}
+
 variable "database_port" {
   description = "MySQL port."
   type        = number

@@ -18,11 +18,13 @@ resource "random_password" "database" {
 }
 
 locals {
-  kubeconfig_path   = pathexpand(var.kubeconfig_path)
-  admin_password    = var.admin_password != null ? var.admin_password : try(random_password.admin[0].result, null)
-  database_password = var.database_password != null ? var.database_password : try(random_password.database[0].result, null)
-  database_host     = var.database_host != null ? var.database_host : ""
-  database_url      = var.database_host != null ? "jdbc:mysql://${var.database_host}:${var.database_port}/${var.database_name}" : ""
+  kubeconfig_path       = pathexpand(var.kubeconfig_path)
+  admin_password        = var.admin_password != null ? var.admin_password : try(random_password.admin[0].result, null)
+  database_password     = var.database_password != null ? var.database_password : try(random_password.database[0].result, null)
+  database_service_host = "${var.database_external_name_service_name}.${var.namespace}.svc.cluster.local"
+  database_host         = var.database_host != null ? var.database_host : ""
+  database_url          = var.database_host != null ? "jdbc:mysql://${local.database_host}:${var.database_port}/${var.database_name}" : ""
+  database_host_is_ip   = var.database_host != null ? can(regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$", var.database_host)) : false
 
   route_manifest = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
@@ -68,7 +70,7 @@ locals {
       resolution: DNS
     YAML
 
-  database_service_entry_manifest = var.database_host == null ? "" : <<-YAML
+  database_service_entry_manifest_static = <<-YAML
     apiVersion: networking.istio.io/v1
     kind: ServiceEntry
     metadata:
@@ -90,6 +92,27 @@ locals {
       endpoints:
         - address: ${var.database_host}
     YAML
+
+  database_service_entry_manifest_dns = <<-YAML
+    apiVersion: networking.istio.io/v1
+    kind: ServiceEntry
+    metadata:
+      name: keycloak-mysql
+      namespace: ${var.gateway_namespace}
+    spec:
+      exportTo:
+        - "*"
+      hosts:
+        - ${var.database_host}
+      location: MESH_EXTERNAL
+      ports:
+        - number: ${var.database_port}
+          name: mysql
+          protocol: TCP
+      resolution: DNS
+    YAML
+
+  database_service_entry_manifest = var.database_host == null ? "" : local.database_host_is_ip ? local.database_service_entry_manifest_static : local.database_service_entry_manifest_dns
 }
 
 resource "kubernetes_namespace_v1" "this" {
@@ -145,6 +168,27 @@ resource "kubernetes_config_map_v1" "this" {
     MYSQL_USER                  = var.database_username
     MYSQL_HOST                  = local.database_host
     MYSQL_PORT                  = tostring(var.database_port)
+  }
+}
+
+resource "kubernetes_service_v1" "database_external_name" {
+  count = var.enabled && var.database_host != null && var.enable_database_external_name_service ? 1 : 0
+
+  metadata {
+    name      = var.database_external_name_service_name
+    namespace = kubernetes_namespace_v1.this[0].metadata[0].name
+  }
+
+  spec {
+    type          = "ExternalName"
+    external_name = var.database_host
+
+    port {
+      name        = "mysql"
+      port        = var.database_port
+      protocol    = "TCP"
+      target_port = var.database_port
+    }
   }
 }
 
@@ -291,8 +335,9 @@ resource "kubernetes_deployment_v1" "this" {
               path = "/health/ready"
               port = 9000
             }
-            initial_delay_seconds = 30
+            initial_delay_seconds = 90
             period_seconds        = 10
+            failure_threshold     = 18
           }
 
           liveness_probe {
@@ -300,8 +345,19 @@ resource "kubernetes_deployment_v1" "this" {
               path = "/health/live"
               port = 9000
             }
-            initial_delay_seconds = 60
+            initial_delay_seconds = 180
             period_seconds        = 20
+            failure_threshold     = 6
+          }
+
+          startup_probe {
+            http_get {
+              path = "/health/live"
+              port = 9000
+            }
+            initial_delay_seconds = 30
+            period_seconds        = 10
+            failure_threshold     = 36
           }
 
           resources {
