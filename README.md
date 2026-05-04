@@ -11,6 +11,7 @@ inside Kubernetes using Helm, Kubernetes manifests, and application providers.
 
 - [`platform`](modules/platform/): Gateway API, cert-manager, ExternalDNS, Istio ambient, public Gateway, waypoint, and Bookinfo lab.
 - [`observability`](modules/observability/): Kiali, kube-prometheus-stack, Grafana, Loki, Tempo, routes, and optional OIDC.
+- [`lab-apps`](modules/lab-apps/): Optional Bookinfo auto-instrumentation, OpenTelemetry Demo, and lab routes.
 - [`argocd`](modules/argocd/): Argo CD GitOps delivery through the shared Gateway.
 - [`keycloak`](modules/keycloak/): Keycloak runtime on Kubernetes with MySQL-backed persistence.
 - [`keycloak-config`](modules/keycloak-config/): Keycloak realm, groups, OIDC clients, and protocol mappers using `keycloak/keycloak`.
@@ -53,4 +54,3 @@ Root stacks using these modules should provide:
 ## License
 
 MIT. See [LICENSE](LICENSE).
-

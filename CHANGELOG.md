@@ -22,13 +22,21 @@
 - Added a named public gateway fallback backend so unmatched wildcard hosts appear as `public-fallback` instead of `unknown` in Kiali.
 - Kept the Kiali login token signing key stable across Helm upgrades to avoid forced session invalidation.
 - Exported shared Istio ServiceEntries mesh-wide so ambient namespaces can resolve named public, Object Storage, and MySQL egress destinations.
+- Added a dedicated `lab-apps` module for OpenTelemetry Demo and Bookinfo auto-instrumentation labs.
+- Added Keycloak database `ExternalName` Service support and DNS-based
+  ServiceEntry generation for MySQL private DNS names.
 
 ### Decisions
 
 - Keep OCI/IaaS resources in `terraform-oci-modules-af`.
 - Keep Helm, Kubernetes manifests, and application providers in this repository.
+- Keep lab workloads separate from core observability so production stacks can reuse monitoring without sample applications.
 - Run Keycloak runtime and Keycloak provider configuration in separate phases because the provider authenticates during planning.
 - Do not attach Argo CD to MySQL; Argo CD uses Kubernetes as its source of persisted cluster state and Redis as cache.
 - Do not request a separate `groups` OAuth scope from Keycloak; group claims are provided by protocol mappers.
 - Use the master realm `admin` role for permanent Keycloak administrators on Keycloak 26, where `realm-management` is not present as a client.
-- Keep Keycloak connected to the OCI MySQL private IP directly; routing it through a selector-less Kubernetes Service changed the network path and caused MySQL handshake timeouts.
+- Keep Keycloak connected to the OCI MySQL private DNS FQDN directly while
+  exposing the same database to the cluster through an optional Kubernetes
+  `ExternalName` Service. Routing Keycloak itself through Kubernetes service
+  indirection can fail during JVM startup if the service FQDN is not resolvable
+  early enough.

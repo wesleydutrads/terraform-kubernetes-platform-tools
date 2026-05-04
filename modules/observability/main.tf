@@ -1,14 +1,18 @@
 locals {
   kubeconfig_path             = pathexpand(var.kubeconfig_path)
   tracing_host                = var.hosts.tracing
+  prometheus_host             = try(var.hosts.prometheus, null)
   tracing_backend             = var.enable_tempo ? "monitoring-grafana" : "jaeger"
   tracing_backend_port        = var.enable_tempo ? 80 : 16686
-  opentelemetry_demo_host     = coalesce(var.opentelemetry_demo_host, replace(var.hosts.grafana, "/^grafana\\./", "otel-demo."))
   oidc_issuer_host            = local.oidc_enabled ? regex("^https?://([^/]+)", var.oidc.issuer_url)[0] : null
-  monitoring_public_hosts     = distinct(compact(concat([var.hosts.kiali, var.hosts.grafana, local.tracing_host], var.enable_opentelemetry_demo_route ? [local.opentelemetry_demo_host] : [])))
+  oauth2_proxy_issuer_host    = var.oauth2_proxy == null ? null : regex("^https?://([^/]+)", nonsensitive(var.oauth2_proxy.issuer_url))[0]
+  monitoring_public_hosts     = distinct(compact([var.hosts.kiali, var.hosts.grafana, local.tracing_host]))
+  oauth_public_hosts          = distinct(compact([var.enable_prometheus_route ? local.prometheus_host : null]))
   egress_public_hosts         = distinct(compact(concat(local.monitoring_public_hosts, [local.oidc_issuer_host])))
+  oauth_egress_hosts          = distinct(compact(concat(local.oauth_public_hosts, [local.oauth2_proxy_issuer_host])))
   public_hosts_policy         = join("\n", [for host in local.monitoring_public_hosts : "                  - ${host}"])
   public_hosts_service_entry  = join("\n", [for host in local.egress_public_hosts : "        - ${host}"])
+  oauth_hosts_service_entry   = join("\n", [for host in local.oauth_egress_hosts : "        - ${host}"])
   oidc_enabled                = var.oidc != null
   loki_storage_endpoint_host  = var.loki_storage == null ? null : nonsensitive(replace(replace(var.loki_storage.endpoint, "https://", ""), "http://", ""))
   tempo_storage_endpoint_host = var.tempo_storage == null ? null : nonsensitive(replace(replace(var.tempo_storage.endpoint, "https://", ""), "http://", ""))
@@ -31,9 +35,9 @@ locals {
       }
     )
   }
-  opentelemetry_instrumentation_ref      = "${var.namespace}/${var.opentelemetry_instrumentation_name}"
-  opentelemetry_collector_endpoint       = "http://${var.opentelemetry_collector_name}.${var.namespace}.svc.cluster.local:4318"
-  opentelemetry_instrumentation_manifest = <<-YAML
+  opentelemetry_instrumentation_ref        = "${var.namespace}/${var.opentelemetry_instrumentation_name}"
+  opentelemetry_collector_endpoint         = "http://${var.opentelemetry_collector_name}.${var.namespace}.svc.cluster.local:4318"
+  opentelemetry_instrumentation_manifest   = <<-YAML
     apiVersion: opentelemetry.io/v1alpha1
     kind: Instrumentation
     metadata:
@@ -62,28 +66,7 @@ locals {
         - name: OTEL_RESOURCE_ATTRIBUTES
           value: deployment.environment.name=lab,k8s.cluster.name=oke-always-free
     YAML
-  opentelemetry_demo_route_manifest      = <<-YAML
-    apiVersion: gateway.networking.k8s.io/v1
-    kind: HTTPRoute
-    metadata:
-      name: otel-demo
-      namespace: ${var.opentelemetry_demo_namespace}
-%{if var.external_dns_target != null~}
-      annotations:
-        external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}
-%{endif~}
-    spec:
-      parentRefs:
-        - name: ${var.gateway_name}
-          namespace: ${var.gateway_namespace}
-      hostnames:
-        - ${local.opentelemetry_demo_host}
-      rules:
-        - backendRefs:
-            - name: frontend-proxy
-              port: 8080
-    YAML
-  token_policy_manifest                  = <<-YAML
+  token_policy_manifest                    = <<-YAML
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -105,7 +88,7 @@ ${local.public_hosts_policy}
               notValues:
                 - ${var.monitoring_token}
     YAML
-  public_host_service_entry_manifest     = <<-YAML
+  public_host_service_entry_manifest       = <<-YAML
     apiVersion: networking.istio.io/v1
     kind: ServiceEntry
     metadata:
@@ -126,7 +109,7 @@ ${local.public_hosts_service_entry}
           protocol: HTTPS
       resolution: DNS
     YAML
-  storage_service_entry_manifest         = <<-YAML
+  storage_service_entry_manifest           = <<-YAML
     apiVersion: networking.istio.io/v1
     kind: ServiceEntry
     metadata:
@@ -144,7 +127,49 @@ ${local.storage_service_entry_hosts}
           protocol: TLS
       resolution: DNS
     YAML
-  istio_pod_monitors_manifest            = <<-YAML
+  prometheus_route_manifest                = <<-YAML
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      name: prometheus
+      namespace: ${var.namespace}
+%{if var.external_dns_target != null~}
+      annotations:
+        external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}
+%{endif~}
+    spec:
+      parentRefs:
+        - name: ${var.gateway_name}
+          namespace: ${var.gateway_namespace}
+      hostnames:
+        - ${local.prometheus_host}
+      rules:
+        - backendRefs:
+            - name: prometheus-oauth2-proxy
+              port: 80
+    YAML
+  oauth_public_host_service_entry_manifest = <<-YAML
+    apiVersion: networking.istio.io/v1
+    kind: ServiceEntry
+    metadata:
+      name: oauth-protected-public-hosts
+      namespace: ${var.istio_root_namespace}
+    spec:
+      exportTo:
+        - "*"
+      hosts:
+${local.oauth_hosts_service_entry}
+      location: MESH_EXTERNAL
+      ports:
+        - number: 80
+          name: http
+          protocol: HTTP
+        - number: 443
+          name: https
+          protocol: HTTPS
+      resolution: DNS
+    YAML
+  istio_pod_monitors_manifest              = <<-YAML
     apiVersion: v1
     kind: Service
     metadata:
@@ -250,7 +275,7 @@ ${local.storage_service_entry_hosts}
           path: /metrics
           interval: 15s
     YAML
-  kiali_route_manifest                   = <<-YAML
+  kiali_route_manifest                     = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
     metadata:
@@ -279,7 +304,7 @@ ${local.storage_service_entry_hosts}
             - name: kiali
               port: 20001
     YAML
-  grafana_route_manifest                 = <<-YAML
+  grafana_route_manifest                   = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
     metadata:
@@ -300,7 +325,7 @@ ${local.storage_service_entry_hosts}
             - name: monitoring-grafana
               port: 80
     YAML
-  tracing_route_manifest                 = <<-YAML
+  tracing_route_manifest                   = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
     metadata:
@@ -331,27 +356,6 @@ resource "kubernetes_namespace_v1" "this" {
     labels = {
       "istio.io/dataplane-mode" = "ambient"
     }
-  }
-
-  lifecycle {
-    ignore_changes = [metadata[0].labels]
-  }
-}
-
-resource "kubernetes_namespace_v1" "opentelemetry_demo" {
-  count = var.enabled && var.enable_opentelemetry_demo ? 1 : 0
-
-  metadata {
-    name = var.opentelemetry_demo_namespace
-    labels = merge(
-      {
-        "istio.io/dataplane-mode" = "ambient"
-      },
-      var.opentelemetry_demo_use_central_waypoint ? {
-        "istio.io/use-waypoint"           = var.central_egress_waypoint_name
-        "istio.io/use-waypoint-namespace" = var.istio_root_namespace
-      } : {}
-    )
   }
 
   lifecycle {
@@ -455,6 +459,7 @@ resource "helm_release" "prometheus_stack" {
             }
           }
         } : {}
+        plugins = var.enable_profiles_drilldown ? ["grafana-pyroscope-app"] : []
         persistence = {
           enabled          = var.enable_grafana_persistence
           storageClassName = var.monitoring_storage_class_name
@@ -489,6 +494,16 @@ resource "helm_release" "prometheus_stack" {
                   filterByTraceID = true
                   filterBySpanID  = false
                 }
+                tracesToProfiles = var.enable_profiles_drilldown && var.pyroscope_datasource_url != null ? {
+                  datasourceUid = "pyroscope"
+                  tags = [
+                    { key = "service.name", value = "service_name" },
+                    { key = "k8s.namespace.name", value = "namespace" },
+                  ]
+                  profileTypeId = "process_cpu:cpu:nanoseconds:cpu:nanoseconds"
+                  customQuery   = true
+                  query         = "{service_name=\"$${__span.tags.service_name}\"}"
+                } : null
                 tracesToMetrics = {
                   datasourceUid      = "prometheus"
                   spanStartTimeShift = "-1h"
@@ -522,6 +537,15 @@ resource "helm_release" "prometheus_stack" {
                   spanEndTimeShift   = "1h"
                 }
               }
+            }
+          ] : [],
+          var.enable_profiles_drilldown && var.pyroscope_datasource_url != null ? [
+            {
+              name   = "Pyroscope"
+              uid    = "pyroscope"
+              type   = "grafana-pyroscope-datasource"
+              access = "proxy"
+              url    = var.pyroscope_datasource_url
             }
           ] : []
         )
@@ -753,6 +777,78 @@ resource "helm_release" "loki" {
       }
     })
   ]
+}
+
+resource "helm_release" "prometheus_oauth2_proxy" {
+  count            = var.enabled && var.enable_prometheus_stack && var.enable_prometheus_route && var.oauth2_proxy != null ? 1 : 0
+  name             = "prometheus-oauth2-proxy"
+  repository       = "https://oauth2-proxy.github.io/manifests"
+  chart            = "oauth2-proxy"
+  version          = var.oauth2_proxy_chart_version
+  namespace        = kubernetes_namespace_v1.this[0].metadata[0].name
+  create_namespace = false
+
+  values = [
+    yamlencode({
+      config = {
+        clientID     = nonsensitive(var.oauth2_proxy.client_id)
+        clientSecret = var.oauth2_proxy.client_secret
+        cookieSecret = var.oauth2_proxy.cookie_secret
+        emailDomains = ["*"]
+      }
+      extraArgs = {
+        provider               = "oidc"
+        "oidc-issuer-url"      = nonsensitive(var.oauth2_proxy.issuer_url)
+        "skip-oidc-discovery"  = "true"
+        "login-url"            = "${nonsensitive(var.oauth2_proxy.issuer_url)}/protocol/openid-connect/auth"
+        "redeem-url"           = "http://keycloak.keycloak.svc.cluster.local:8080/realms/platform/protocol/openid-connect/token"
+        "profile-url"          = "http://keycloak.keycloak.svc.cluster.local:8080/realms/platform/protocol/openid-connect/userinfo"
+        "oidc-jwks-url"        = "http://keycloak.keycloak.svc.cluster.local:8080/realms/platform/protocol/openid-connect/certs"
+        "redirect-url"         = "https://${local.prometheus_host}/oauth2/callback"
+        upstream               = "http://monitoring-kube-prometheus-prometheus.${var.namespace}.svc.cluster.local:9090"
+        "reverse-proxy"        = "true"
+        "set-xauthrequest"     = "true"
+        "pass-user-headers"    = "true"
+        "pass-access-token"    = "true"
+        "skip-provider-button" = "true"
+        "trusted-proxy-ip"     = "10.0.0.0/8,169.254.0.0/16"
+        "cookie-secure"        = "true"
+        "cookie-samesite"      = "lax"
+        "cookie-expire"        = "8h"
+        scope                  = "openid profile email groups"
+        "allowed-group"        = "platform-admins"
+      }
+      resources = {
+        requests = {
+          cpu    = "10m"
+          memory = "32Mi"
+        }
+        limits = {
+          cpu    = "100m"
+          memory = "128Mi"
+        }
+      }
+      redis-ha = {
+        enabled = false
+      }
+      initContainers = {
+        waitForRedis = {
+          enabled = false
+        }
+      }
+      metrics = {
+        enabled = true
+        serviceMonitor = {
+          enabled = true
+          labels = {
+            release = "monitoring"
+          }
+        }
+      }
+    })
+  ]
+
+  depends_on = [helm_release.prometheus_stack]
 }
 
 resource "helm_release" "promtail" {
@@ -1248,30 +1344,6 @@ resource "null_resource" "opentelemetry_instrumentation" {
   depends_on = [helm_release.opentelemetry_operator, helm_release.opentelemetry_collector_gateway]
 }
 
-resource "null_resource" "bookinfo_opentelemetry_annotations" {
-  count = var.enabled && var.enable_bookinfo_opentelemetry_annotations && var.enable_opentelemetry_instrumentation ? 1 : 0
-
-  triggers = {
-    instrumentation_ref = local.opentelemetry_instrumentation_ref
-    annotation_target   = "pod-template-v1"
-    kubeconfig_path     = local.kubeconfig_path
-    kubectl_path        = var.kubectl_path
-  }
-
-  provisioner "local-exec" {
-    command = join(" && ", [
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment productpage-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-python\":\"${local.opentelemetry_instrumentation_ref}\"}}}}}'",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment ratings-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-nodejs\":\"${local.opentelemetry_instrumentation_ref}\"}}}}}'",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${local.opentelemetry_instrumentation_ref}\"}}}}}'",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v2 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${local.opentelemetry_instrumentation_ref}\"}}}}}'",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v3 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${local.opentelemetry_instrumentation_ref}\"}}}}}'",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} rollout status deployment productpage-v1 ratings-v1 reviews-v1 reviews-v2 reviews-v3 -n default --timeout=180s"
-    ])
-  }
-
-  depends_on = [null_resource.opentelemetry_instrumentation]
-}
-
 resource "helm_release" "jaeger" {
   count            = var.enabled && var.enable_jaeger ? 1 : 0
   name             = "jaeger"
@@ -1307,398 +1379,6 @@ resource "helm_release" "jaeger" {
       }
     })
   ]
-}
-
-resource "helm_release" "opentelemetry_demo" {
-  count            = var.enabled && var.enable_opentelemetry_demo ? 1 : 0
-  name             = "otel-demo"
-  repository       = "https://open-telemetry.github.io/opentelemetry-helm-charts"
-  chart            = "opentelemetry-demo"
-  version          = var.opentelemetry_demo_chart_version
-  namespace        = kubernetes_namespace_v1.opentelemetry_demo[0].metadata[0].name
-  create_namespace = false
-
-  values = [
-    yamlencode({
-      default = {
-        envOverrides = [
-          {
-            name  = "OTEL_COLLECTOR_NAME"
-            value = "${var.opentelemetry_collector_name}.${var.namespace}.svc.cluster.local"
-          },
-          {
-            name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
-            value = "http://${var.opentelemetry_collector_name}.${var.namespace}.svc.cluster.local:4318"
-          }
-        ]
-      }
-      components = {
-        accounting = {
-          initContainers = [
-            {
-              name    = "wait-for-kafka"
-              image   = "docker.io/library/busybox:latest"
-              command = ["sh", "-c", "until nc -z -v -w30 kafka 9092; do echo waiting for kafka; sleep 2; done;"]
-            }
-          ]
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "128Mi"
-            }
-            limits = {
-              cpu    = "250m"
-              memory = var.opentelemetry_demo_accounting_memory_limit
-            }
-          }
-        }
-        cart = {
-          initContainers = [
-            {
-              name    = "wait-for-valkey-cart"
-              image   = "docker.io/library/busybox:latest"
-              command = ["sh", "-c", "until nc -z -v -w30 valkey-cart 6379; do echo waiting for valkey-cart; sleep 2; done;"]
-            }
-          ]
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "96Mi"
-            }
-            limits = {
-              cpu    = "250m"
-              memory = "192Mi"
-            }
-          }
-        }
-        checkout = {
-          initContainers = [
-            {
-              name    = "wait-for-kafka"
-              image   = "docker.io/library/busybox:latest"
-              command = ["sh", "-c", "until nc -z -v -w30 kafka 9092; do echo waiting for kafka; sleep 2; done;"]
-            }
-          ]
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "32Mi"
-            }
-            limits = {
-              cpu    = "150m"
-              memory = "96Mi"
-            }
-          }
-        }
-        "fraud-detection" = {
-          initContainers = [
-            {
-              name    = "wait-for-kafka"
-              image   = "docker.io/library/busybox:latest"
-              command = ["sh", "-c", "until nc -z -v -w30 kafka 9092; do echo waiting for kafka; sleep 2; done;"]
-            }
-          ]
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "256Mi"
-            }
-            limits = {
-              cpu    = "300m"
-              memory = "384Mi"
-            }
-          }
-        }
-        "load-generator" = {
-          envOverrides = [
-            {
-              name  = "LOCUST_BROWSER_TRAFFIC_ENABLED"
-              value = tostring(var.opentelemetry_demo_enable_browser_traffic)
-            }
-          ]
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "128Mi"
-            }
-            limits = {
-              cpu    = "1"
-              memory = "1536Mi"
-            }
-          }
-        }
-        flagd = {
-          initContainers = [
-            {
-              name    = "init-config"
-              image   = "docker.io/library/busybox:latest"
-              command = ["sh", "-c", "cp /config-ro/demo.flagd.json /config-rw/demo.flagd.json && cat /config-rw/demo.flagd.json"]
-              volumeMounts = [
-                {
-                  mountPath = "/config-ro"
-                  name      = "config-ro"
-                },
-                {
-                  mountPath = "/config-rw"
-                  name      = "config-rw"
-                }
-              ]
-            }
-          ]
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "64Mi"
-            }
-            limits = {
-              cpu    = "200m"
-              memory = "256Mi"
-            }
-          }
-        }
-        ad = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "256Mi"
-            }
-            limits = {
-              cpu    = "300m"
-              memory = "384Mi"
-            }
-          }
-        }
-        email = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "64Mi"
-            }
-            limits = {
-              cpu    = "150m"
-              memory = "128Mi"
-            }
-          }
-        }
-        frontend = {
-          resources = {
-            requests = {
-              cpu    = "20m"
-              memory = "192Mi"
-            }
-            limits = {
-              cpu    = "500m"
-              memory = "384Mi"
-            }
-          }
-        }
-        currency = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "32Mi"
-            }
-            limits = {
-              cpu    = "150m"
-              memory = "96Mi"
-            }
-          }
-        }
-        "frontend-proxy" = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "64Mi"
-            }
-            limits = {
-              cpu    = "250m"
-              memory = "128Mi"
-            }
-          }
-        }
-        "image-provider" = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "32Mi"
-            }
-            limits = {
-              cpu    = "150m"
-              memory = "96Mi"
-            }
-          }
-        }
-        kafka = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "640Mi"
-            }
-            limits = {
-              cpu    = "500m"
-              memory = "896Mi"
-            }
-          }
-        }
-        llm = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "96Mi"
-            }
-            limits = {
-              cpu    = "250m"
-              memory = "192Mi"
-            }
-          }
-        }
-        payment = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "160Mi"
-            }
-            limits = {
-              cpu    = "250m"
-              memory = "256Mi"
-            }
-          }
-        }
-        "product-catalog" = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "32Mi"
-            }
-            limits = {
-              cpu    = "200m"
-              memory = "96Mi"
-            }
-          }
-        }
-        "product-reviews" = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "128Mi"
-            }
-            limits = {
-              cpu    = "250m"
-              memory = "256Mi"
-            }
-          }
-        }
-        postgresql = {
-          imageOverride = {
-            repository = "docker.io/library/postgres"
-            tag        = "17.6"
-          }
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "64Mi"
-            }
-            limits = {
-              cpu    = "250m"
-              memory = "192Mi"
-            }
-          }
-        }
-        quote = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "32Mi"
-            }
-            limits = {
-              cpu    = "150m"
-              memory = "96Mi"
-            }
-          }
-        }
-        recommendation = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "128Mi"
-            }
-            limits = {
-              cpu    = "300m"
-              memory = "512Mi"
-            }
-          }
-        }
-        shipping = {
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "32Mi"
-            }
-            limits = {
-              cpu    = "150m"
-              memory = "96Mi"
-            }
-          }
-        }
-        "valkey-cart" = {
-          imageOverride = {
-            repository = "docker.io/valkey/valkey"
-            tag        = "9.0.1-alpine3.23"
-          }
-          resources = {
-            requests = {
-              cpu    = "10m"
-              memory = "32Mi"
-            }
-            limits = {
-              cpu    = "150m"
-              memory = "96Mi"
-            }
-          }
-        }
-      }
-      "opentelemetry-collector" = {
-        enabled = false
-      }
-      jaeger = {
-        enabled = false
-      }
-      prometheus = {
-        enabled = false
-      }
-      grafana = {
-        enabled = false
-      }
-      opensearch = {
-        enabled = false
-      }
-    })
-  ]
-
-  depends_on = [helm_release.opentelemetry_collector_gateway]
-}
-
-resource "null_resource" "opentelemetry_demo_route" {
-  count = var.enabled && var.enable_opentelemetry_demo && var.enable_opentelemetry_demo_route ? 1 : 0
-
-  triggers = {
-    manifest_sha    = sha1(local.opentelemetry_demo_route_manifest)
-    name            = "otel-demo"
-    namespace       = var.opentelemetry_demo_namespace
-    kubeconfig_path = local.kubeconfig_path
-    kubectl_path    = var.kubectl_path
-  }
-
-  provisioner "local-exec" {
-    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.opentelemetry_demo_route_manifest}\nYAML"
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete httproute ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
-  }
-
-  depends_on = [helm_release.opentelemetry_demo]
 }
 
 resource "helm_release" "kiali" {
@@ -1877,6 +1557,20 @@ resource "null_resource" "public_host_service_entries" {
   depends_on = [kubernetes_namespace_v1.this]
 }
 
+resource "null_resource" "oauth_public_host_service_entries" {
+  count = var.enabled && var.enable_public_host_service_entries && length(local.oauth_egress_hosts) > 0 ? 1 : 0
+
+  triggers = {
+    manifest_sha = sha1(local.oauth_public_host_service_entry_manifest)
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.oauth_public_host_service_entry_manifest}\nYAML"
+  }
+
+  depends_on = [kubernetes_namespace_v1.this]
+}
+
 resource "null_resource" "storage_service_entries" {
   count = var.enabled && length(local.storage_endpoint_hosts) > 0 ? 1 : 0
 
@@ -1931,6 +1625,20 @@ resource "null_resource" "grafana_route" {
   }
 
   depends_on = [helm_release.prometheus_stack]
+}
+
+resource "null_resource" "prometheus_route" {
+  count = var.enabled && var.enable_prometheus_stack && var.enable_prometheus_route && var.oauth2_proxy != null ? 1 : 0
+
+  triggers = {
+    manifest_sha = sha1(local.prometheus_route_manifest)
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.prometheus_route_manifest}\nYAML"
+  }
+
+  depends_on = [helm_release.prometheus_oauth2_proxy]
 }
 
 resource "null_resource" "tracing_route" {

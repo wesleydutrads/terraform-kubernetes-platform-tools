@@ -23,10 +23,23 @@ variable "gateway_namespace" {
 variable "hosts" {
   description = "Dashboard hostnames."
   type = object({
-    kiali   = string
-    grafana = string
-    tracing = string
+    kiali      = string
+    grafana    = string
+    tracing    = string
+    prometheus = optional(string)
   })
+}
+
+variable "oauth2_proxy" {
+  description = "Optional oauth2-proxy settings for dashboards without native browser authentication."
+  type = object({
+    issuer_url    = string
+    client_id     = string
+    client_secret = string
+    cookie_secret = string
+  })
+  default   = null
+  sensitive = true
 }
 
 variable "monitoring_token" {
@@ -135,6 +148,30 @@ variable "enable_prometheus_persistence" {
   default     = true
 }
 
+variable "enable_prometheus_route" {
+  description = "Expose the Prometheus UI through oauth2-proxy and the shared Gateway."
+  type        = bool
+  default     = false
+}
+
+variable "enable_profiles_drilldown" {
+  description = "Install Grafana Profiles Drilldown support and provision a Pyroscope datasource when pyroscope_datasource_url is set."
+  type        = bool
+  default     = false
+}
+
+variable "pyroscope_datasource_url" {
+  description = "Internal Pyroscope datasource URL for Grafana Profiles Drilldown."
+  type        = string
+  default     = null
+}
+
+variable "oauth2_proxy_chart_version" {
+  description = "oauth2-proxy Helm chart version."
+  type        = string
+  default     = "10.4.3"
+}
+
 variable "monitoring_storage_class_name" {
   description = "StorageClass used by monitoring PVCs. Null uses the cluster default."
   type        = string
@@ -219,64 +256,10 @@ variable "opentelemetry_instrumentation_name" {
   default     = "platform"
 }
 
-variable "enable_bookinfo_opentelemetry_annotations" {
-  description = "Annotate supported Bookinfo deployments for OpenTelemetry Operator auto-instrumentation."
-  type        = bool
-  default     = false
-}
-
-variable "enable_opentelemetry_demo" {
-  description = "Install the official OpenTelemetry Demo application for observability labs."
-  type        = bool
-  default     = false
-}
-
-variable "opentelemetry_demo_use_central_waypoint" {
-  description = "Enroll the OpenTelemetry Demo namespace to use the shared Istio ambient waypoint."
-  type        = bool
-  default     = true
-}
-
 variable "central_egress_waypoint_name" {
   description = "Name of the shared Istio ambient waypoint used by the OpenTelemetry Demo namespace."
   type        = string
   default     = "egress-waypoint"
-}
-
-variable "opentelemetry_demo_chart_version" {
-  description = "OpenTelemetry Demo Helm chart version."
-  type        = string
-  default     = "0.40.7"
-}
-
-variable "opentelemetry_demo_namespace" {
-  description = "Namespace for the OpenTelemetry Demo application."
-  type        = string
-  default     = "otel-demo"
-}
-
-variable "opentelemetry_demo_host" {
-  description = "Optional public hostname for the OpenTelemetry Demo frontend."
-  type        = string
-  default     = null
-}
-
-variable "opentelemetry_demo_enable_browser_traffic" {
-  description = "Enable Playwright browser users in the OpenTelemetry Demo load generator. Browser background traffic can create external Google connections that appear as unknown in Istio/Kiali."
-  type        = bool
-  default     = false
-}
-
-variable "opentelemetry_demo_accounting_memory_limit" {
-  description = "Memory limit for the OpenTelemetry Demo accounting service. The chart default is too low when telemetry is enabled under sustained traffic."
-  type        = string
-  default     = "256Mi"
-}
-
-variable "enable_opentelemetry_demo_route" {
-  description = "Create a public HTTPRoute for the OpenTelemetry Demo frontend."
-  type        = bool
-  default     = false
 }
 
 variable "enable_tempo_metrics_generator" {
