@@ -1009,6 +1009,28 @@ resource "helm_release" "opentelemetry_operator" {
   ]
 }
 
+resource "kubernetes_cluster_role_binding_v1" "opentelemetry_operator_auth_delegator" {
+  count = var.enabled && var.enable_opentelemetry_operator && var.enable_prometheus_stack ? 1 : 0
+
+  metadata {
+    name = "${var.namespace}-opentelemetry-operator-auth-delegator"
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = "system:auth-delegator"
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = "opentelemetry-operator"
+    namespace = kubernetes_namespace_v1.this[0].metadata[0].name
+  }
+
+  depends_on = [helm_release.opentelemetry_operator]
+}
+
 resource "helm_release" "opentelemetry_collector_gateway" {
   count            = var.enabled && var.enable_opentelemetry_collector_gateway ? 1 : 0
   name             = var.opentelemetry_collector_name
