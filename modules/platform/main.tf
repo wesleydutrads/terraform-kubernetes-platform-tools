@@ -612,6 +612,42 @@ resource "helm_release" "cert_manager" {
       value = "true"
     }
   ]
+
+  values = [
+    yamlencode({
+      resources = {
+        requests = {
+          cpu    = "20m"
+          memory = "64Mi"
+        }
+        limits = {
+          memory = "160Mi"
+        }
+      }
+      cainjector = {
+        resources = {
+          requests = {
+            cpu    = "20m"
+            memory = "128Mi"
+          }
+          limits = {
+            memory = "256Mi"
+          }
+        }
+      }
+      webhook = {
+        resources = {
+          requests = {
+            cpu    = "10m"
+            memory = "48Mi"
+          }
+          limits = {
+            memory = "128Mi"
+          }
+        }
+      }
+    })
+  ]
 }
 
 resource "helm_release" "cert_manager_oci_webhook" {
@@ -729,6 +765,15 @@ resource "helm_release" "istiod" {
 
   values = [
     yamlencode({
+      resources = {
+        requests = {
+          cpu    = "100m"
+          memory = "256Mi"
+        }
+        limits = {
+          memory = "768Mi"
+        }
+      }
       meshConfig = merge(
         var.enable_istio_access_logs ? {
           accessLogFile     = "/dev/stdout"

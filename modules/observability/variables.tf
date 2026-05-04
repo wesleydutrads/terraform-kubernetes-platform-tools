@@ -267,6 +267,12 @@ variable "opentelemetry_demo_enable_browser_traffic" {
   default     = false
 }
 
+variable "opentelemetry_demo_accounting_memory_limit" {
+  description = "Memory limit for the OpenTelemetry Demo accounting service. The chart default is too low when telemetry is enabled under sustained traffic."
+  type        = string
+  default     = "256Mi"
+}
+
 variable "enable_opentelemetry_demo_route" {
   description = "Create a public HTTPRoute for the OpenTelemetry Demo frontend."
   type        = bool

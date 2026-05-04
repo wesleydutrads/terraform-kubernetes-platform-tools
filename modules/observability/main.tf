@@ -385,6 +385,40 @@ resource "helm_release" "prometheus_stack" {
       grafana = {
         enabled       = true
         adminPassword = var.monitoring_token
+        resources = {
+          requests = {
+            cpu    = "50m"
+            memory = "512Mi"
+          }
+          limits = {
+            cpu    = "500m"
+            memory = "768Mi"
+          }
+        }
+        sidecar = {
+          dashboards = {
+            resources = {
+              requests = {
+                cpu    = "10m"
+                memory = "96Mi"
+              }
+              limits = {
+                memory = "160Mi"
+              }
+            }
+          }
+          datasources = {
+            resources = {
+              requests = {
+                cpu    = "10m"
+                memory = "96Mi"
+              }
+              limits = {
+                memory = "160Mi"
+              }
+            }
+          }
+        }
         "grafana.ini" = merge({
           server = {
             domain   = var.hosts.grafana
@@ -499,6 +533,16 @@ resource "helm_release" "prometheus_stack" {
         prometheusSpec = {
           retention                 = "12h"
           enableRemoteWriteReceiver = var.enable_tempo && var.enable_tempo_metrics_generator
+          resources = {
+            requests = {
+              cpu    = "100m"
+              memory = "1Gi"
+            }
+            limits = {
+              cpu    = "750m"
+              memory = "2Gi"
+            }
+          }
           podMetadata = {
             labels = {
               "istio.io/dataplane-mode" = "none"
@@ -517,6 +561,50 @@ resource "helm_release" "prometheus_stack" {
               }
             }
           } : null
+        }
+      }
+      prometheusOperator = {
+        resources = {
+          requests = {
+            cpu    = "20m"
+            memory = "64Mi"
+          }
+          limits = {
+            memory = "192Mi"
+          }
+        }
+        prometheusConfigReloader = {
+          resources = {
+            requests = {
+              cpu    = "5m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "96Mi"
+            }
+          }
+        }
+      }
+      "kube-state-metrics" = {
+        resources = {
+          requests = {
+            cpu    = "10m"
+            memory = "48Mi"
+          }
+          limits = {
+            memory = "128Mi"
+          }
+        }
+      }
+      "prometheus-node-exporter" = {
+        resources = {
+          requests = {
+            cpu    = "10m"
+            memory = "32Mi"
+          }
+          limits = {
+            memory = "96Mi"
+          }
         }
       }
     })
@@ -605,8 +693,41 @@ resource "helm_release" "loki" {
       }
       singleBinary = {
         replicas = 1
+        resources = {
+          requests = {
+            cpu    = "50m"
+            memory = "768Mi"
+          }
+          limits = {
+            memory = "1536Mi"
+          }
+        }
         persistence = {
           enabled = false
+        }
+      }
+      gateway = {
+        resources = {
+          requests = {
+            cpu    = "10m"
+            memory = "32Mi"
+          }
+          limits = {
+            memory = "128Mi"
+          }
+        }
+      }
+      sidecar = {
+        rules = {
+          resources = {
+            requests = {
+              cpu    = "5m"
+              memory = "96Mi"
+            }
+            limits = {
+              memory = "160Mi"
+            }
+          }
         }
       }
       read = {
@@ -784,6 +905,15 @@ resource "helm_release" "tempo" {
       replicas = 1
       tempo = {
         retention = var.tempo_retention_period
+        resources = {
+          requests = {
+            cpu    = "100m"
+            memory = "2Gi"
+          }
+          limits = {
+            memory = "4Gi"
+          }
+        }
         metricsGenerator = {
           enabled = var.enable_tempo_metrics_generator
           processor = var.enable_tempo_metrics_generator ? {
@@ -860,7 +990,7 @@ resource "helm_release" "opentelemetry_operator" {
             memory = "64Mi"
           }
           limits = {
-            memory = "192Mi"
+            memory = "256Mi"
           }
         }
         serviceMonitor = {
@@ -937,11 +1067,11 @@ resource "helm_release" "opentelemetry_collector_gateway" {
       }
       resources = {
         requests = {
-          cpu    = "50m"
-          memory = "128Mi"
+          cpu    = "100m"
+          memory = "192Mi"
         }
         limits = {
-          memory = "384Mi"
+          memory = "512Mi"
         }
       }
       serviceMonitor = {
@@ -1189,6 +1319,16 @@ resource "helm_release" "opentelemetry_demo" {
               command = ["sh", "-c", "until nc -z -v -w30 kafka 9092; do echo waiting for kafka; sleep 2; done;"]
             }
           ]
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "128Mi"
+            }
+            limits = {
+              cpu    = "250m"
+              memory = var.opentelemetry_demo_accounting_memory_limit
+            }
+          }
         }
         cart = {
           initContainers = [
@@ -1198,6 +1338,16 @@ resource "helm_release" "opentelemetry_demo" {
               command = ["sh", "-c", "until nc -z -v -w30 valkey-cart 6379; do echo waiting for valkey-cart; sleep 2; done;"]
             }
           ]
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "96Mi"
+            }
+            limits = {
+              cpu    = "250m"
+              memory = "192Mi"
+            }
+          }
         }
         checkout = {
           initContainers = [
@@ -1207,6 +1357,16 @@ resource "helm_release" "opentelemetry_demo" {
               command = ["sh", "-c", "until nc -z -v -w30 kafka 9092; do echo waiting for kafka; sleep 2; done;"]
             }
           ]
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              cpu    = "150m"
+              memory = "96Mi"
+            }
+          }
         }
         "fraud-detection" = {
           initContainers = [
@@ -1216,6 +1376,16 @@ resource "helm_release" "opentelemetry_demo" {
               command = ["sh", "-c", "until nc -z -v -w30 kafka 9092; do echo waiting for kafka; sleep 2; done;"]
             }
           ]
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "256Mi"
+            }
+            limits = {
+              cpu    = "300m"
+              memory = "384Mi"
+            }
+          }
         }
         "load-generator" = {
           envOverrides = [
@@ -1224,6 +1394,16 @@ resource "helm_release" "opentelemetry_demo" {
               value = tostring(var.opentelemetry_demo_enable_browser_traffic)
             }
           ]
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "128Mi"
+            }
+            limits = {
+              cpu    = "1"
+              memory = "1536Mi"
+            }
+          }
         }
         flagd = {
           initContainers = [
@@ -1243,17 +1423,215 @@ resource "helm_release" "opentelemetry_demo" {
               ]
             }
           ]
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "200m"
+              memory = "256Mi"
+            }
+          }
+        }
+        ad = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "256Mi"
+            }
+            limits = {
+              cpu    = "300m"
+              memory = "384Mi"
+            }
+          }
+        }
+        email = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "150m"
+              memory = "128Mi"
+            }
+          }
+        }
+        frontend = {
+          resources = {
+            requests = {
+              cpu    = "20m"
+              memory = "192Mi"
+            }
+            limits = {
+              cpu    = "500m"
+              memory = "384Mi"
+            }
+          }
+        }
+        currency = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              cpu    = "150m"
+              memory = "96Mi"
+            }
+          }
+        }
+        "frontend-proxy" = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "250m"
+              memory = "128Mi"
+            }
+          }
+        }
+        "image-provider" = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              cpu    = "150m"
+              memory = "96Mi"
+            }
+          }
+        }
+        kafka = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "640Mi"
+            }
+            limits = {
+              cpu    = "500m"
+              memory = "896Mi"
+            }
+          }
+        }
+        llm = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "96Mi"
+            }
+            limits = {
+              cpu    = "250m"
+              memory = "192Mi"
+            }
+          }
+        }
+        payment = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "160Mi"
+            }
+            limits = {
+              cpu    = "250m"
+              memory = "256Mi"
+            }
+          }
+        }
+        "product-catalog" = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              cpu    = "200m"
+              memory = "96Mi"
+            }
+          }
+        }
+        "product-reviews" = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "128Mi"
+            }
+            limits = {
+              cpu    = "250m"
+              memory = "256Mi"
+            }
+          }
         }
         postgresql = {
           imageOverride = {
             repository = "docker.io/library/postgres"
             tag        = "17.6"
           }
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "250m"
+              memory = "192Mi"
+            }
+          }
+        }
+        quote = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              cpu    = "150m"
+              memory = "96Mi"
+            }
+          }
+        }
+        recommendation = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "128Mi"
+            }
+            limits = {
+              cpu    = "300m"
+              memory = "512Mi"
+            }
+          }
+        }
+        shipping = {
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              cpu    = "150m"
+              memory = "96Mi"
+            }
+          }
         }
         "valkey-cart" = {
           imageOverride = {
             repository = "docker.io/valkey/valkey"
             tag        = "9.0.1-alpine3.23"
+          }
+          resources = {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              cpu    = "150m"
+              memory = "96Mi"
+            }
           }
         }
       }
@@ -1311,6 +1689,17 @@ resource "helm_release" "kiali" {
 
   values = [
     yamlencode({
+      deployment = {
+        resources = {
+          requests = {
+            cpu    = "25m"
+            memory = "128Mi"
+          }
+          limits = {
+            memory = "512Mi"
+          }
+        }
+      }
       auth = merge({
         strategy = var.kiali_auth_strategy
         }, local.oidc_enabled && var.kiali_auth_strategy == "openid" ? {
