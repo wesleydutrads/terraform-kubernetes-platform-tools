@@ -41,6 +41,9 @@
 - Added an optional official Grafana Pyroscope eBPF Kubernetes lab with a
   CPU-bound Python workload and Alloy DaemonSet for validating Profiles
   Drilldown with real profile data.
+- Added an optional Go pprof pull-mode profiling lab to validate runtime
+  profile types such as CPU, memory, mutex, block, and goroutine through
+  Grafana Alloy and Pyroscope.
 
 ### Decisions
 

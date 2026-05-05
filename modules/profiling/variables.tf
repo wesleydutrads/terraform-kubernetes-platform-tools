@@ -127,3 +127,33 @@ variable "central_egress_waypoint_name" {
   type        = string
   default     = "egress-waypoint"
 }
+
+variable "enable_go_pprof_lab" {
+  description = "Install a Go pprof pull-mode lab for validating CPU, memory, mutex, block, and goroutine profile types."
+  type        = bool
+  default     = false
+}
+
+variable "go_pprof_lab_namespace" {
+  description = "Namespace for the Go pprof profiling lab."
+  type        = string
+  default     = "pyroscope-go-pprof"
+}
+
+variable "go_pprof_lab_go_image" {
+  description = "Fully qualified Go image used to run the pprof lab workload."
+  type        = string
+  default     = "docker.io/library/golang:1.25-alpine"
+}
+
+variable "go_pprof_lab_alloy_image" {
+  description = "Fully qualified Grafana Alloy image used by the Go pprof pull lab."
+  type        = string
+  default     = "docker.io/grafana/alloy:latest"
+}
+
+variable "go_pprof_lab_use_central_waypoint" {
+  description = "Enroll the Go pprof lab namespace to use the shared Istio ambient waypoint."
+  type        = bool
+  default     = false
+}

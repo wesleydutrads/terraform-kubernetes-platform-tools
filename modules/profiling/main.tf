@@ -601,3 +601,415 @@ resource "kubernetes_daemon_set_v1" "ebpf_lab_alloy" {
     kubernetes_deployment_v1.ebpf_lab_python_app
   ]
 }
+
+resource "kubernetes_namespace_v1" "go_pprof_lab" {
+  count = var.enabled && var.enable_go_pprof_lab ? 1 : 0
+
+  metadata {
+    name = var.go_pprof_lab_namespace
+    labels = merge(
+      {
+        "app.kubernetes.io/name"    = "go-pprof-lab"
+        "app.kubernetes.io/part-of" = "profiling-labs"
+      },
+      var.go_pprof_lab_use_central_waypoint ? {
+        "istio.io/dataplane-mode"         = "ambient"
+        "istio.io/use-waypoint"           = var.central_egress_waypoint_name
+        "istio.io/use-waypoint-namespace" = var.istio_root_namespace
+      } : {}
+    )
+  }
+}
+
+resource "kubernetes_config_map_v1" "go_pprof_lab_app" {
+  count = var.enabled && var.enable_go_pprof_lab ? 1 : 0
+
+  metadata {
+    name      = "go-pprof-lab"
+    namespace = kubernetes_namespace_v1.go_pprof_lab[0].metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"    = "go-pprof-lab"
+      "app.kubernetes.io/part-of" = "pyroscope-go-pprof-lab"
+    }
+  }
+
+  data = {
+    "main.go" = <<-GO
+      package main
+
+      import (
+      	"log"
+      	"net/http"
+      	_ "net/http/pprof"
+      	"runtime"
+      	"sync"
+      	"time"
+      )
+
+      var retained [][]byte
+      var retainedMu sync.Mutex
+      var mutexHotspot sync.Mutex
+
+      func cpuWork() {
+      	for {
+      		x := 0
+      		for i := 0; i < 4000000; i++ {
+      			x += i % 97
+      		}
+      		if x == -1 {
+      			log.Println("unreachable")
+      		}
+      	}
+      }
+
+      func heapWork() {
+      	for {
+      		buf := make([]byte, 256*1024)
+      		for i := range buf {
+      			buf[i] = byte(i)
+      		}
+      		retainedMu.Lock()
+      		retained = append(retained, buf)
+      		if len(retained) > 48 {
+      			retained = retained[1:]
+      		}
+      		retainedMu.Unlock()
+      		time.Sleep(200 * time.Millisecond)
+      	}
+      }
+
+      func mutexHolder() {
+      	for {
+      		mutexHotspot.Lock()
+      		time.Sleep(20 * time.Millisecond)
+      		mutexHotspot.Unlock()
+      		time.Sleep(1 * time.Millisecond)
+      	}
+      }
+
+      func mutexWaiter() {
+      	for {
+      		mutexHotspot.Lock()
+      		mutexHotspot.Unlock()
+      		time.Sleep(1 * time.Millisecond)
+      	}
+      }
+
+      func blockWork(ch <-chan struct{}) {
+      	for {
+      		<-ch
+      		time.Sleep(1 * time.Millisecond)
+      	}
+      }
+
+      func main() {
+      	runtime.SetMutexProfileFraction(1)
+      	runtime.SetBlockProfileRate(1)
+
+      	for i := 0; i < 4; i++ {
+      		go cpuWork()
+      	}
+      	go heapWork()
+      	go mutexHolder()
+      	for i := 0; i < 8; i++ {
+      		go mutexWaiter()
+      	}
+      	ch := make(chan struct{})
+      	for i := 0; i < 12; i++ {
+      		go blockWork(ch)
+      	}
+      	go func() {
+      		for {
+      			time.Sleep(2 * time.Millisecond)
+      			ch <- struct{}{}
+      		}
+      	}()
+
+      	log.Println("go pprof lab listening on :6060")
+      	log.Fatal(http.ListenAndServe(":6060", nil))
+      }
+    GO
+  }
+}
+
+resource "kubernetes_deployment_v1" "go_pprof_lab_app" {
+  count = var.enabled && var.enable_go_pprof_lab ? 1 : 0
+
+  metadata {
+    name      = "go-pprof-lab"
+    namespace = kubernetes_namespace_v1.go_pprof_lab[0].metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"      = "go-pprof-lab"
+      "app.kubernetes.io/part-of"   = "pyroscope-go-pprof-lab"
+      "app.kubernetes.io/version"   = "v1"
+      "pyroscope.io/profile_target" = "true"
+      "pyroscope.io/profile_source" = "grafana-alloy-go-pull"
+    }
+    annotations = {
+      "pyroscope.io/service_name"   = "pyroscope-go/go-pprof-lab"
+      "pyroscope.io/reference_repo" = "github.com/grafana/pyroscope"
+      "pyroscope.io/reference_path" = "examples/grafana-alloy-auto-instrumentation/golang-pull"
+    }
+  }
+
+  spec {
+    replicas = 1
+
+    selector {
+      match_labels = {
+        app = "go-pprof-lab"
+      }
+    }
+
+    template {
+      metadata {
+        labels = {
+          app                           = "go-pprof-lab"
+          "app.kubernetes.io/name"      = "go-pprof-lab"
+          "app.kubernetes.io/part-of"   = "pyroscope-go-pprof-lab"
+          "app.kubernetes.io/version"   = "v1"
+          "pyroscope.io/profile_target" = "true"
+        }
+        annotations = {
+          "pyroscope.io/service_name"   = "pyroscope-go/go-pprof-lab"
+          "pyroscope.io/reference_repo" = "github.com/grafana/pyroscope"
+          "pyroscope.io/reference_path" = "examples/grafana-alloy-auto-instrumentation/golang-pull"
+          "checksum/config"             = sha256(jsonencode(kubernetes_config_map_v1.go_pprof_lab_app[0].data))
+        }
+      }
+
+      spec {
+        container {
+          name              = "go-pprof-lab"
+          image             = var.go_pprof_lab_go_image
+          image_pull_policy = "IfNotPresent"
+          command           = ["go"]
+          args              = ["run", "/app/main.go"]
+
+          port {
+            name           = "pprof"
+            container_port = 6060
+            protocol       = "TCP"
+          }
+
+          resources {
+            requests = {
+              cpu    = "50m"
+              memory = "96Mi"
+            }
+            limits = {
+              cpu    = "500m"
+              memory = "256Mi"
+            }
+          }
+
+          volume_mount {
+            name       = "app"
+            mount_path = "/app"
+            read_only  = true
+          }
+        }
+
+        volume {
+          name = "app"
+          config_map {
+            name = kubernetes_config_map_v1.go_pprof_lab_app[0].metadata[0].name
+            items {
+              key  = "main.go"
+              path = "main.go"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_service_v1" "go_pprof_lab_app" {
+  count = var.enabled && var.enable_go_pprof_lab ? 1 : 0
+
+  metadata {
+    name      = "go-pprof-lab"
+    namespace = kubernetes_namespace_v1.go_pprof_lab[0].metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"    = "go-pprof-lab"
+      "app.kubernetes.io/part-of" = "pyroscope-go-pprof-lab"
+    }
+  }
+
+  spec {
+    selector = {
+      app = "go-pprof-lab"
+    }
+
+    port {
+      name        = "pprof"
+      port        = 6060
+      target_port = "pprof"
+      protocol    = "TCP"
+    }
+  }
+}
+
+resource "kubernetes_config_map_v1" "go_pprof_lab_alloy" {
+  count = var.enabled && var.enable_go_pprof_lab ? 1 : 0
+
+  metadata {
+    name      = "go-pprof-alloy"
+    namespace = kubernetes_namespace_v1.go_pprof_lab[0].metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"    = "go-pprof-alloy"
+      "app.kubernetes.io/part-of" = "pyroscope-go-pprof-lab"
+    }
+  }
+
+  data = {
+    "config.alloy" = <<-ALLOY
+      logging {
+        level  = "info"
+        format = "logfmt"
+      }
+
+      pyroscope.write "endpoint" {
+        endpoint {
+          url = "http://pyroscope.${var.namespace}.svc.cluster.local:4040"
+        }
+        external_labels = {
+          lab = "grafana-pyroscope-official-go-pull",
+        }
+      }
+
+      pyroscope.scrape "go_pprof_lab" {
+        targets = [
+          {
+            "__address__"       = "go-pprof-lab.${var.go_pprof_lab_namespace}.svc.cluster.local:6060",
+            "service_name"      = "pyroscope-go/go-pprof-lab",
+            "service_namespace" = "pyroscope-go",
+            "service_version"   = "v1",
+          },
+        ]
+        forward_to = [pyroscope.write.endpoint.receiver]
+
+        profiling_config {
+          profile.process_cpu {
+            enabled = true
+          }
+
+          profile.godeltaprof_memory {
+            enabled = false
+          }
+
+          profile.memory {
+            enabled = true
+          }
+
+          profile.godeltaprof_mutex {
+            enabled = false
+          }
+
+          profile.mutex {
+            enabled = true
+          }
+
+          profile.godeltaprof_block {
+            enabled = false
+          }
+
+          profile.block {
+            enabled = true
+          }
+
+          profile.goroutine {
+            enabled = true
+          }
+        }
+      }
+    ALLOY
+  }
+}
+
+resource "kubernetes_deployment_v1" "go_pprof_lab_alloy" {
+  count = var.enabled && var.enable_go_pprof_lab ? 1 : 0
+
+  metadata {
+    name      = "go-pprof-alloy"
+    namespace = kubernetes_namespace_v1.go_pprof_lab[0].metadata[0].name
+    labels = {
+      app                         = "go-pprof-alloy"
+      "app.kubernetes.io/name"    = "go-pprof-alloy"
+      "app.kubernetes.io/part-of" = "pyroscope-go-pprof-lab"
+    }
+  }
+
+  spec {
+    replicas = 1
+
+    selector {
+      match_labels = {
+        app = "go-pprof-alloy"
+      }
+    }
+
+    template {
+      metadata {
+        labels = {
+          app                         = "go-pprof-alloy"
+          "app.kubernetes.io/name"    = "go-pprof-alloy"
+          "app.kubernetes.io/part-of" = "pyroscope-go-pprof-lab"
+        }
+        annotations = {
+          "checksum/config" = sha256(jsonencode(kubernetes_config_map_v1.go_pprof_lab_alloy[0].data))
+        }
+      }
+
+      spec {
+        container {
+          name              = "alloy"
+          image             = var.go_pprof_lab_alloy_image
+          image_pull_policy = "Always"
+          command = [
+            "/bin/alloy",
+            "run",
+            "/etc/alloy/config.alloy",
+            "--server.http.listen-addr=0.0.0.0:12345"
+          ]
+
+          port {
+            name           = "http-metrics"
+            container_port = 12345
+            protocol       = "TCP"
+          }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "150m"
+              memory = "192Mi"
+            }
+          }
+
+          volume_mount {
+            name       = "alloy-config"
+            mount_path = "/etc/alloy"
+            read_only  = true
+          }
+        }
+
+        volume {
+          name = "alloy-config"
+          config_map {
+            name = kubernetes_config_map_v1.go_pprof_lab_alloy[0].metadata[0].name
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    helm_release.pyroscope,
+    kubernetes_service_v1.go_pprof_lab_app
+  ]
+}
