@@ -112,6 +112,7 @@ resource "null_resource" "bookinfo_opentelemetry_annotations" {
 
   triggers = {
     instrumentation_ref = var.opentelemetry_instrumentation_ref
+    overlay_version     = "bookinfo-observability-v2"
     annotation_target   = "pod-template-v1"
     kubeconfig_path     = local.kubeconfig_path
     kubectl_path        = var.kubectl_path
@@ -119,12 +120,13 @@ resource "null_resource" "bookinfo_opentelemetry_annotations" {
 
   provisioner "local-exec" {
     command = join(" && ", [
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment productpage-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-python\":\"${var.opentelemetry_instrumentation_ref}\"}}}}}'",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment ratings-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-nodejs\":\"${var.opentelemetry_instrumentation_ref}\"}}}}}'",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${var.opentelemetry_instrumentation_ref}\"}}}}}'",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v2 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${var.opentelemetry_instrumentation_ref}\"}}}}}'",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v3 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${var.opentelemetry_instrumentation_ref}\"}}}}}'",
-      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} rollout status deployment productpage-v1 ratings-v1 reviews-v1 reviews-v2 reviews-v3 -n default --timeout=180s"
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment details-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"labels\":{\"app.kubernetes.io/name\":\"details\",\"app.kubernetes.io/part-of\":\"bookinfo\",\"app.kubernetes.io/version\":\"v1\"},\"annotations\":{\"resource.opentelemetry.io/service.namespace\":\"bookinfo\",\"resource.opentelemetry.io/service.version\":\"v1\"}}}}}'",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment productpage-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"labels\":{\"app.kubernetes.io/name\":\"productpage\",\"app.kubernetes.io/part-of\":\"bookinfo\",\"app.kubernetes.io/version\":\"v1\"},\"annotations\":{\"instrumentation.opentelemetry.io/inject-python\":\"${var.opentelemetry_instrumentation_ref}\",\"resource.opentelemetry.io/service.namespace\":\"bookinfo\",\"resource.opentelemetry.io/service.version\":\"v1\"}}}}}'",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment ratings-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"labels\":{\"app.kubernetes.io/name\":\"ratings\",\"app.kubernetes.io/part-of\":\"bookinfo\",\"app.kubernetes.io/version\":\"v1\"},\"annotations\":{\"instrumentation.opentelemetry.io/inject-nodejs\":\"${var.opentelemetry_instrumentation_ref}\",\"resource.opentelemetry.io/service.namespace\":\"bookinfo\",\"resource.opentelemetry.io/service.version\":\"v1\"}}}}}'",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v1 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"labels\":{\"app.kubernetes.io/name\":\"reviews\",\"app.kubernetes.io/part-of\":\"bookinfo\",\"app.kubernetes.io/version\":\"v1\"},\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${var.opentelemetry_instrumentation_ref}\",\"resource.opentelemetry.io/service.namespace\":\"bookinfo\",\"resource.opentelemetry.io/service.version\":\"v1\"}}}}}'",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v2 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"labels\":{\"app.kubernetes.io/name\":\"reviews\",\"app.kubernetes.io/part-of\":\"bookinfo\",\"app.kubernetes.io/version\":\"v2\"},\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${var.opentelemetry_instrumentation_ref}\",\"resource.opentelemetry.io/service.namespace\":\"bookinfo\",\"resource.opentelemetry.io/service.version\":\"v2\"}}}}}'",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} patch deployment reviews-v3 -n default --type=merge -p '{\"spec\":{\"template\":{\"metadata\":{\"labels\":{\"app.kubernetes.io/name\":\"reviews\",\"app.kubernetes.io/part-of\":\"bookinfo\",\"app.kubernetes.io/version\":\"v3\"},\"annotations\":{\"instrumentation.opentelemetry.io/inject-java\":\"${var.opentelemetry_instrumentation_ref}\",\"resource.opentelemetry.io/service.namespace\":\"bookinfo\",\"resource.opentelemetry.io/service.version\":\"v3\"}}}}}'",
+      "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} rollout status deployment details-v1 productpage-v1 ratings-v1 reviews-v1 reviews-v2 reviews-v3 -n default --timeout=180s"
     ])
   }
 }
@@ -149,6 +151,10 @@ resource "helm_release" "opentelemetry_demo" {
           {
             name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
             value = local.opentelemetry_collector_url
+          },
+          {
+            name  = "OTEL_RESOURCE_ATTRIBUTES"
+            value = "deployment.environment.name=lab,k8s.cluster.name=oke-always-free,service.namespace=otel-demo"
           }
         ]
       }

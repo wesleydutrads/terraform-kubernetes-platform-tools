@@ -31,6 +31,13 @@
   the single profile collector for the Pyroscope process.
 - Fixed Grafana Tempo trace-to-profiles provisioning to use the `${__tags}`
   matcher instead of an interpolated empty `service_name` value.
+- Added Kubernetes metadata enrichment to the OpenTelemetry Collector gateway so
+  traces and logs carry namespace, pod, deployment, node, container, image,
+  service, and version attributes without duplicating Prometheus metric labels.
+- Added Bookinfo observability labels and OpenTelemetry resource annotations to
+  align traces, logs, metrics, and future profiles with the same service names.
+- Added shared OpenTelemetry resource attributes to the OpenTelemetry Demo so
+  exported telemetry consistently identifies the lab environment and cluster.
 
 ### Decisions
 

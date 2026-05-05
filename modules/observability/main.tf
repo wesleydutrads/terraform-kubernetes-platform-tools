@@ -1144,6 +1144,26 @@ resource "helm_release" "opentelemetry_collector_gateway" {
       image = {
         repository = "docker.io/otel/opentelemetry-collector-contrib"
       }
+      presets = {
+        kubernetesAttributes = {
+          enabled = false
+        }
+      }
+      clusterRole = {
+        create = true
+        rules = [
+          {
+            apiGroups = [""]
+            resources = ["pods", "namespaces", "nodes"]
+            verbs     = ["get", "list", "watch"]
+          },
+          {
+            apiGroups = ["apps"]
+            resources = ["replicasets"]
+            verbs     = ["get", "list", "watch"]
+          }
+        ]
+      }
       ports = {
         otlp = {
           enabled       = true
@@ -1230,6 +1250,63 @@ resource "helm_release" "opentelemetry_collector_gateway" {
             limit_percentage       = 80
             spike_limit_percentage = 25
           }
+          k8s_attributes = {
+            auth_type = "serviceAccount"
+            extract = {
+              metadata = [
+                "k8s.namespace.name",
+                "k8s.pod.name",
+                "k8s.pod.uid",
+                "k8s.deployment.name",
+                "k8s.node.name",
+                "k8s.container.name",
+                "container.image.name",
+                "container.image.tag"
+              ]
+              labels = [
+                {
+                  tag_name = "service_name"
+                  key      = "app.kubernetes.io/name"
+                  from     = "pod"
+                },
+                {
+                  tag_name = "service_namespace"
+                  key      = "app.kubernetes.io/part-of"
+                  from     = "pod"
+                },
+                {
+                  tag_name = "service_version"
+                  key      = "app.kubernetes.io/version"
+                  from     = "pod"
+                }
+              ]
+            }
+            pod_association = [
+              {
+                sources = [
+                  {
+                    from = "resource_attribute"
+                    name = "k8s.pod.ip"
+                  }
+                ]
+              },
+              {
+                sources = [
+                  {
+                    from = "resource_attribute"
+                    name = "k8s.pod.uid"
+                  }
+                ]
+              },
+              {
+                sources = [
+                  {
+                    from = "connection"
+                  }
+                ]
+              }
+            ]
+          }
           resource = {
             attributes = [
               {
@@ -1278,7 +1355,7 @@ resource "helm_release" "opentelemetry_collector_gateway" {
             var.enable_tempo ? {
               traces = {
                 receivers  = ["otlp"]
-                processors = ["memory_limiter", "resource", "batch"]
+                processors = ["memory_limiter", "k8s_attributes", "resource", "batch"]
                 exporters  = ["otlp_http/tempo"]
               }
             } : {},
@@ -1292,7 +1369,7 @@ resource "helm_release" "opentelemetry_collector_gateway" {
             var.enable_loki ? {
               logs = {
                 receivers  = ["otlp"]
-                processors = ["memory_limiter", "resource", "batch"]
+                processors = ["memory_limiter", "k8s_attributes", "resource", "batch"]
                 exporters  = ["otlp_http/loki"]
               }
             } : {}
