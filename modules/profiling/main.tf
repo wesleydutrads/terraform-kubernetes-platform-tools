@@ -213,3 +213,391 @@ resource "null_resource" "service_entry" {
     command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.service_entry_manifest}\nYAML"
   }
 }
+
+resource "kubernetes_namespace_v1" "ebpf_lab" {
+  count = var.enabled && var.enable_ebpf_lab ? 1 : 0
+
+  metadata {
+    name = var.ebpf_lab_namespace
+    labels = merge(
+      {
+        "app.kubernetes.io/name"    = "pyroscope-ebpf-lab"
+        "app.kubernetes.io/part-of" = "profiling-labs"
+      },
+      var.ebpf_lab_use_central_waypoint ? {
+        "istio.io/dataplane-mode"         = "ambient"
+        "istio.io/use-waypoint"           = var.central_egress_waypoint_name
+        "istio.io/use-waypoint-namespace" = var.istio_root_namespace
+      } : {}
+    )
+  }
+}
+
+resource "kubernetes_config_map_v1" "ebpf_lab_python_app" {
+  count = var.enabled && var.enable_ebpf_lab ? 1 : 0
+
+  metadata {
+    name      = "python-fast-slow"
+    namespace = kubernetes_namespace_v1.ebpf_lab[0].metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"    = "python-fast-slow"
+      "app.kubernetes.io/part-of" = "pyroscope-ebpf-lab"
+    }
+  }
+
+  data = {
+    "main.py" = <<-PY
+      #!/usr/bin/env python3
+
+      def work(n):
+          i = 0
+          while i < n:
+              i += 1
+
+      def fast_function():
+          work(20000)
+
+      def slow_function():
+          work(80000)
+
+      if __name__ == "__main__":
+          while True:
+              fast_function()
+              slow_function()
+    PY
+  }
+}
+
+resource "kubernetes_deployment_v1" "ebpf_lab_python_app" {
+  count = var.enabled && var.enable_ebpf_lab ? 1 : 0
+
+  metadata {
+    name      = "python-fast-slow"
+    namespace = kubernetes_namespace_v1.ebpf_lab[0].metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"      = "python-fast-slow"
+      "app.kubernetes.io/part-of"   = "pyroscope-ebpf-lab"
+      "app.kubernetes.io/version"   = "v1"
+      "pyroscope.io/profile_target" = "true"
+      "pyroscope.io/profile_source" = "grafana-alloy-ebpf"
+    }
+    annotations = {
+      "pyroscope.io/service_name"   = "pyroscope-ebpf/python-fast-slow"
+      "pyroscope.io/reference_repo" = "github.com/grafana/pyroscope"
+      "pyroscope.io/reference_path" = "examples/grafana-alloy-auto-instrumentation/ebpf/kubernetes"
+    }
+  }
+
+  spec {
+    replicas = 1
+
+    selector {
+      match_labels = {
+        app = "python-fast-slow"
+      }
+    }
+
+    template {
+      metadata {
+        labels = {
+          app                           = "python-fast-slow"
+          "app.kubernetes.io/name"      = "python-fast-slow"
+          "app.kubernetes.io/part-of"   = "pyroscope-ebpf-lab"
+          "app.kubernetes.io/version"   = "v1"
+          "pyroscope.io/profile_target" = "true"
+        }
+        annotations = {
+          "pyroscope.io/service_name"   = "pyroscope-ebpf/python-fast-slow"
+          "pyroscope.io/reference_repo" = "github.com/grafana/pyroscope"
+          "pyroscope.io/reference_path" = "examples/grafana-alloy-auto-instrumentation/ebpf/kubernetes"
+        }
+      }
+
+      spec {
+        container {
+          name              = "python-fast-slow"
+          image             = var.ebpf_lab_python_image
+          image_pull_policy = "IfNotPresent"
+          command           = ["python3"]
+          args              = ["/app/main.py"]
+
+          resources {
+            requests = {
+              cpu    = "25m"
+              memory = "32Mi"
+            }
+            limits = {
+              cpu    = "250m"
+              memory = "96Mi"
+            }
+          }
+
+          volume_mount {
+            name       = "app"
+            mount_path = "/app"
+            read_only  = true
+          }
+        }
+
+        volume {
+          name = "app"
+          config_map {
+            name = kubernetes_config_map_v1.ebpf_lab_python_app[0].metadata[0].name
+            items {
+              key  = "main.py"
+              path = "main.py"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_service_account_v1" "ebpf_lab_alloy" {
+  count = var.enabled && var.enable_ebpf_lab ? 1 : 0
+
+  metadata {
+    name      = "pyroscope-ebpf-alloy"
+    namespace = kubernetes_namespace_v1.ebpf_lab[0].metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"    = "pyroscope-ebpf-alloy"
+      "app.kubernetes.io/part-of" = "pyroscope-ebpf-lab"
+    }
+  }
+}
+
+resource "kubernetes_cluster_role_v1" "ebpf_lab_alloy" {
+  count = var.enabled && var.enable_ebpf_lab ? 1 : 0
+
+  metadata {
+    name = "${var.ebpf_lab_namespace}-alloy-discovery"
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["pods", "nodes", "namespaces"]
+    verbs      = ["get", "list", "watch"]
+  }
+}
+
+resource "kubernetes_cluster_role_binding_v1" "ebpf_lab_alloy" {
+  count = var.enabled && var.enable_ebpf_lab ? 1 : 0
+
+  metadata {
+    name = "${var.ebpf_lab_namespace}-alloy-discovery"
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = kubernetes_cluster_role_v1.ebpf_lab_alloy[0].metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account_v1.ebpf_lab_alloy[0].metadata[0].name
+    namespace = kubernetes_namespace_v1.ebpf_lab[0].metadata[0].name
+  }
+}
+
+resource "kubernetes_config_map_v1" "ebpf_lab_alloy" {
+  count = var.enabled && var.enable_ebpf_lab ? 1 : 0
+
+  metadata {
+    name      = "pyroscope-ebpf-alloy"
+    namespace = kubernetes_namespace_v1.ebpf_lab[0].metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"    = "pyroscope-ebpf-alloy"
+      "app.kubernetes.io/part-of" = "pyroscope-ebpf-lab"
+    }
+  }
+
+  data = {
+    "config.alloy" = <<-ALLOY
+      logging {
+        level  = "info"
+        format = "logfmt"
+      }
+
+      discovery.kubernetes "local_pods" {
+        selectors {
+          field = "spec.nodeName=" + env("HOSTNAME")
+          role  = "pod"
+        }
+        role = "pod"
+      }
+
+      discovery.relabel "profile_targets" {
+        targets = discovery.kubernetes.local_pods.targets
+
+        rule {
+          action        = "keep"
+          source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_container_name", "__meta_kubernetes_pod_label_pyroscope_io_profile_target"]
+          separator     = ";"
+          regex         = "${var.ebpf_lab_namespace};python-fast-slow;true"
+        }
+
+        rule {
+          action        = "replace"
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+
+        rule {
+          action        = "replace"
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+
+        rule {
+          action        = "replace"
+          source_labels = ["__meta_kubernetes_pod_node_name"]
+          target_label  = "node"
+        }
+
+        rule {
+          action        = "replace"
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+
+        rule {
+          action       = "replace"
+          replacement  = "pyroscope-ebpf/python-fast-slow"
+          target_label = "service_name"
+        }
+
+        rule {
+          action       = "replace"
+          replacement  = "pyroscope-ebpf"
+          target_label = "service_namespace"
+        }
+
+        rule {
+          action       = "replace"
+          replacement  = "v1"
+          target_label = "service_version"
+        }
+
+        rule {
+          action       = "replace"
+          replacement  = "grafana-pyroscope-official-ebpf-kubernetes"
+          target_label = "lab"
+        }
+      }
+
+      pyroscope.ebpf "python_fast_slow" {
+        forward_to     = [pyroscope.write.endpoint.receiver]
+        targets        = discovery.relabel.profile_targets.output
+        python_enabled = true
+      }
+
+      pyroscope.write "endpoint" {
+        endpoint {
+          url = "http://pyroscope.${var.namespace}.svc.cluster.local:4040"
+        }
+      }
+    ALLOY
+  }
+}
+
+resource "kubernetes_daemon_set_v1" "ebpf_lab_alloy" {
+  count = var.enabled && var.enable_ebpf_lab ? 1 : 0
+
+  metadata {
+    name      = "pyroscope-ebpf-alloy"
+    namespace = kubernetes_namespace_v1.ebpf_lab[0].metadata[0].name
+    labels = {
+      app                         = "pyroscope-ebpf-alloy"
+      "app.kubernetes.io/name"    = "pyroscope-ebpf-alloy"
+      "app.kubernetes.io/part-of" = "pyroscope-ebpf-lab"
+      "app.kubernetes.io/version" = "latest"
+    }
+  }
+
+  spec {
+    selector {
+      match_labels = {
+        app = "pyroscope-ebpf-alloy"
+      }
+    }
+
+    template {
+      metadata {
+        labels = {
+          app                         = "pyroscope-ebpf-alloy"
+          "app.kubernetes.io/name"    = "pyroscope-ebpf-alloy"
+          "app.kubernetes.io/part-of" = "pyroscope-ebpf-lab"
+        }
+      }
+
+      spec {
+        service_account_name = kubernetes_service_account_v1.ebpf_lab_alloy[0].metadata[0].name
+        host_pid             = true
+
+        container {
+          name              = "alloy"
+          image             = var.ebpf_lab_alloy_image
+          image_pull_policy = "Always"
+          command = [
+            "/bin/alloy",
+            "run",
+            "/etc/alloy/config.alloy",
+            "--server.http.listen-addr=0.0.0.0:12345"
+          ]
+
+          env {
+            name = "HOSTNAME"
+            value_from {
+              field_ref {
+                field_path = "spec.nodeName"
+              }
+            }
+          }
+
+          port {
+            name           = "http-metrics"
+            container_port = 12345
+            protocol       = "TCP"
+          }
+
+          resources {
+            requests = {
+              cpu    = "25m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "250m"
+              memory = "256Mi"
+            }
+          }
+
+          security_context {
+            privileged  = true
+            run_as_user = 0
+          }
+
+          volume_mount {
+            name       = "alloy-config"
+            mount_path = "/etc/alloy"
+            read_only  = true
+          }
+        }
+
+        volume {
+          name = "alloy-config"
+          config_map {
+            name = kubernetes_config_map_v1.ebpf_lab_alloy[0].metadata[0].name
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    helm_release.pyroscope,
+    kubernetes_cluster_role_binding_v1.ebpf_lab_alloy,
+    kubernetes_deployment_v1.ebpf_lab_python_app
+  ]
+}

@@ -91,3 +91,39 @@ variable "storage" {
   default   = null
   sensitive = true
 }
+
+variable "enable_ebpf_lab" {
+  description = "Install an official Pyroscope eBPF profiling lab workload for validating Grafana Profiles Drilldown."
+  type        = bool
+  default     = false
+}
+
+variable "ebpf_lab_namespace" {
+  description = "Namespace for the Pyroscope eBPF profiling lab."
+  type        = string
+  default     = "pyroscope-ebpf"
+}
+
+variable "ebpf_lab_python_image" {
+  description = "Fully qualified Python image used by the CPU profiling lab workload."
+  type        = string
+  default     = "docker.io/library/python:3.13-slim"
+}
+
+variable "ebpf_lab_alloy_image" {
+  description = "Fully qualified Grafana Alloy image used by the eBPF profiling lab."
+  type        = string
+  default     = "docker.io/grafana/alloy:latest"
+}
+
+variable "ebpf_lab_use_central_waypoint" {
+  description = "Enroll the eBPF lab namespace to use the shared Istio ambient waypoint."
+  type        = bool
+  default     = false
+}
+
+variable "central_egress_waypoint_name" {
+  description = "Name of the shared Istio ambient waypoint used by optional lab namespaces."
+  type        = string
+  default     = "egress-waypoint"
+}

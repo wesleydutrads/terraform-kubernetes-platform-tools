@@ -38,6 +38,9 @@
   align traces, logs, metrics, and future profiles with the same service names.
 - Added shared OpenTelemetry resource attributes to the OpenTelemetry Demo so
   exported telemetry consistently identifies the lab environment and cluster.
+- Added an optional official Grafana Pyroscope eBPF Kubernetes lab with a
+  CPU-bound Python workload and Alloy DaemonSet for validating Profiles
+  Drilldown with real profile data.
 
 ### Decisions
 
