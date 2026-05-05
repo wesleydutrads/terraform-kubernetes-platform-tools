@@ -213,6 +213,52 @@ variable "public_gateway_allowed_cidrs" {
   default     = ["0.0.0.0/0"]
 }
 
+variable "enable_public_gateway_security_headers" {
+  description = "Inject baseline browser security headers on all responses served by the public Istio Gateway."
+  type        = bool
+  default     = true
+}
+
+variable "enable_public_gateway_blocked_paths" {
+  description = "Deny common scanner and sensitive paths at the public Istio Gateway."
+  type        = bool
+  default     = true
+}
+
+variable "public_gateway_blocked_paths" {
+  description = "Path patterns denied at the public Istio Gateway. Istio AuthorizationPolicy path wildcards are supported."
+  type        = list(string)
+  default = [
+    "/.env",
+    "/.git*",
+    "/wp-admin*",
+    "/wp-login.php",
+    "/xmlrpc.php",
+    "/phpmyadmin*",
+    "/server-status",
+    "/actuator*",
+    "/debug*",
+    "/metrics",
+  ]
+}
+
+variable "enable_public_gateway_local_rate_limit" {
+  description = "Enable Envoy local rate limiting on the public Istio Gateway. Disabled by default because it is gateway-wide."
+  type        = bool
+  default     = false
+}
+
+variable "public_gateway_rate_limit_requests_per_minute" {
+  description = "Gateway-wide local rate limit budget per public Gateway pod."
+  type        = number
+  default     = 600
+
+  validation {
+    condition     = var.public_gateway_rate_limit_requests_per_minute > 0
+    error_message = "public_gateway_rate_limit_requests_per_minute must be greater than zero."
+  }
+}
+
 variable "enable_wildcard_certificate" {
   description = "Create ClusterIssuer and wildcard Certificate resources."
   type        = bool

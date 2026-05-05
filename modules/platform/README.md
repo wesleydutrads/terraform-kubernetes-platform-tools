@@ -11,6 +11,7 @@ Installs the shared Kubernetes platform layer for an OCI OKE cluster.
 - Metrics Server
 - Istio ambient mode
 - public Istio ingress gateway backed by an OCI Network Load Balancer
+- optional no-cost public gateway hardening with security headers, denied scanner paths, and local rate limiting
 - optional wildcard TLS certificate and HTTPS Gateway listener
 - optional shared ambient waypoint in the Istio root namespace
 - optional Istio Bookinfo sample in the `default` namespace
@@ -59,6 +60,24 @@ module should annotate the public Gateway with
 `external-dns.alpha.kubernetes.io/target=<public-nlb-ip>` when OCI reports both
 private and public Gateway addresses. Application HTTPRoutes can then create DNS
 records automatically.
+
+## Public Gateway Hardening
+
+The module can harden the public Istio Gateway without adding paid OCI
+resources:
+
+- `enable_public_gateway_security_headers=true` injects HSTS,
+  `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, and
+  `X-Frame-Options` through an EnvoyFilter on the `public-istio` workload.
+- `enable_public_gateway_blocked_paths=true` creates an AuthorizationPolicy that
+  denies common scanner paths such as `/.env`, `/.git*`, `/wp-admin*`, and
+  `/actuator*`.
+- `enable_public_gateway_local_rate_limit=false` is available for opt-in
+  gateway-wide local rate limiting. Set
+  `public_gateway_rate_limit_requests_per_minute` when enabling it.
+
+Keep rate limiting disabled during load tests unless the test is specifically
+validating throttling behavior.
 
 ## Central waypoint
 

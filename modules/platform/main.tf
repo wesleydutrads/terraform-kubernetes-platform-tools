@@ -1,9 +1,9 @@
 locals {
-  kubeconfig_path                  = pathexpand(var.kubeconfig_path)
-  istio_namespace                  = "istio-system"
-  wildcard_secret_name             = "wildcard-${replace(var.domain_name, ".", "-")}-tls"
-  bookinfo_host                    = coalesce(var.bookinfo_host, "bookinfo.${var.domain_name}")
-  letsencrypt_prod_manifest        = <<-YAML
+  kubeconfig_path                          = pathexpand(var.kubeconfig_path)
+  istio_namespace                          = "istio-system"
+  wildcard_secret_name                     = "wildcard-${replace(var.domain_name, ".", "-")}-tls"
+  bookinfo_host                            = coalesce(var.bookinfo_host, "bookinfo.${var.domain_name}")
+  letsencrypt_prod_manifest                = <<-YAML
     apiVersion: cert-manager.io/v1
     kind: ClusterIssuer
     metadata:
@@ -26,7 +26,7 @@ locals {
                   compartmentOCID: ${var.compartment_ocid}
                   region: ${var.region}
     YAML
-  wildcard_certificate_manifest    = <<-YAML
+  wildcard_certificate_manifest            = <<-YAML
     apiVersion: cert-manager.io/v1
     kind: Certificate
     metadata:
@@ -41,7 +41,7 @@ locals {
         - ${var.domain_name}
         - "*.${var.domain_name}"
     YAML
-  public_gateway_manifest          = <<-YAML
+  public_gateway_manifest                  = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
     kind: Gateway
     metadata:
@@ -79,7 +79,7 @@ locals {
               from: All
 %{endif~}
     YAML
-  public_gateway_fallback_manifest = <<-YAML
+  public_gateway_fallback_manifest         = <<-YAML
     apiVersion: v1
     kind: ConfigMap
     metadata:
@@ -91,7 +91,11 @@ locals {
           listen 8080;
           server_name _;
           location / {
-            add_header content-type text/plain always;
+            add_header Content-Type text/plain always;
+            add_header X-Content-Type-Options nosniff always;
+            add_header Referrer-Policy no-referrer always;
+            add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+            add_header X-Robots-Tag "noindex, nofollow" always;
             return 404 "No route configured for this host.\n";
           }
         }
@@ -166,7 +170,118 @@ locals {
             - name: public-fallback
               port: 80
     YAML
-  public_gateway_options           = <<-YAML
+  public_gateway_security_headers_manifest = <<-YAML
+    apiVersion: networking.istio.io/v1alpha3
+    kind: EnvoyFilter
+    metadata:
+      name: public-gateway-security-headers
+      namespace: ${local.istio_namespace}
+    spec:
+      workloadSelector:
+        labels:
+          gateway.networking.k8s.io/gateway-name: public
+      configPatches:
+        - applyTo: HTTP_FILTER
+          match:
+            context: GATEWAY
+            listener:
+              filterChain:
+                filter:
+                  name: envoy.filters.network.http_connection_manager
+                  subFilter:
+                    name: envoy.filters.http.router
+          patch:
+            operation: INSERT_BEFORE
+            value:
+              name: envoy.filters.http.lua
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                inlineCode: |
+                  local function set_if_absent(headers, name, value)
+                    if headers:get(name) == nil then
+                      headers:add(name, value)
+                    end
+                  end
+
+                  function envoy_on_response(response_handle)
+                    local headers = response_handle:headers()
+                    set_if_absent(headers, "strict-transport-security", "max-age=31536000; includeSubDomains")
+                    set_if_absent(headers, "x-content-type-options", "nosniff")
+                    set_if_absent(headers, "referrer-policy", "strict-origin-when-cross-origin")
+                    set_if_absent(headers, "permissions-policy", "geolocation=(), microphone=(), camera=()")
+                    set_if_absent(headers, "x-frame-options", "SAMEORIGIN")
+                  end
+    YAML
+  public_gateway_blocked_paths_manifest    = <<-YAML
+    apiVersion: security.istio.io/v1
+    kind: AuthorizationPolicy
+    metadata:
+      name: public-gateway-blocked-paths
+      namespace: ${local.istio_namespace}
+    spec:
+      selector:
+        matchLabels:
+          gateway.networking.k8s.io/gateway-name: public
+      action: DENY
+      rules:
+        - to:
+            - operation:
+                ports:
+                  - "80"
+                  - "443"
+                paths:
+%{for path in var.public_gateway_blocked_paths~}
+                  - ${jsonencode(path)}
+%{endfor~}
+    YAML
+  public_gateway_local_rate_limit_manifest = <<-YAML
+    apiVersion: networking.istio.io/v1alpha3
+    kind: EnvoyFilter
+    metadata:
+      name: public-gateway-local-rate-limit
+      namespace: ${local.istio_namespace}
+    spec:
+      workloadSelector:
+        labels:
+          gateway.networking.k8s.io/gateway-name: public
+      configPatches:
+        - applyTo: HTTP_FILTER
+          match:
+            context: GATEWAY
+            listener:
+              filterChain:
+                filter:
+                  name: envoy.filters.network.http_connection_manager
+                  subFilter:
+                    name: envoy.filters.http.router
+          patch:
+            operation: INSERT_BEFORE
+            value:
+              name: envoy.filters.http.local_ratelimit
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                stat_prefix: public_gateway_local_rate_limiter
+                token_bucket:
+                  max_tokens: ${var.public_gateway_rate_limit_requests_per_minute}
+                  tokens_per_fill: ${var.public_gateway_rate_limit_requests_per_minute}
+                  fill_interval: 60s
+                filter_enabled:
+                  runtime_key: public_gateway_local_rate_limit_enabled
+                  default_value:
+                    numerator: 100
+                    denominator: HUNDRED
+                filter_enforced:
+                  runtime_key: public_gateway_local_rate_limit_enforced
+                  default_value:
+                    numerator: 100
+                    denominator: HUNDRED
+                response_headers_to_add:
+                  - append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                    header:
+                      key: x-local-rate-limit
+                      value: "true"
+    YAML
+  public_gateway_options                   = <<-YAML
     service: |
       spec:
         ipFamilyPolicy: SingleStack
@@ -177,7 +292,7 @@ locals {
           - ${cidr}
 %{endfor~}
     YAML
-  central_egress_waypoint_manifest = <<-YAML
+  central_egress_waypoint_manifest         = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
     kind: Gateway
     metadata:
@@ -195,7 +310,7 @@ locals {
             namespaces:
               from: All
     YAML
-  mesh_tracing_manifest            = <<-YAML
+  mesh_tracing_manifest                    = <<-YAML
     apiVersion: telemetry.istio.io/v1
     kind: Telemetry
     metadata:
@@ -214,7 +329,7 @@ locals {
           randomSamplingPercentage: ${var.istio_tracing_sampling_percentage}
 %{endif~}
     YAML
-  bookinfo_manifest                = <<-YAML
+  bookinfo_manifest                        = <<-YAML
     apiVersion: v1
     kind: Service
     metadata:
@@ -523,7 +638,7 @@ locals {
                 limits:
                   memory: 512Mi
     YAML
-  bookinfo_route_manifest          = <<-YAML
+  bookinfo_route_manifest                  = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
     metadata:
@@ -546,7 +661,7 @@ locals {
             - name: productpage
               port: 9080
     YAML
-  bookinfo_service_entry_manifest  = <<-YAML
+  bookinfo_service_entry_manifest          = <<-YAML
     apiVersion: networking.istio.io/v1
     kind: ServiceEntry
     metadata:
@@ -942,6 +1057,75 @@ resource "null_resource" "public_gateway_fallback" {
 
   provisioner "local-exec" {
     command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.public_gateway_fallback_manifest}\nYAML"
+  }
+
+  depends_on = [null_resource.public_gateway]
+}
+
+resource "null_resource" "public_gateway_security_headers" {
+  count = var.enabled && var.enable_public_ingress_gateway && var.enable_public_gateway_security_headers ? 1 : 0
+
+  triggers = {
+    manifest_sha    = sha1(local.public_gateway_security_headers_manifest)
+    name            = "public-gateway-security-headers"
+    namespace       = local.istio_namespace
+    kubectl_path    = var.kubectl_path
+    kubeconfig_path = local.kubeconfig_path
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.public_gateway_security_headers_manifest}\nYAML"
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete envoyfilter ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+  }
+
+  depends_on = [null_resource.public_gateway]
+}
+
+resource "null_resource" "public_gateway_blocked_paths" {
+  count = var.enabled && var.enable_public_ingress_gateway && var.enable_public_gateway_blocked_paths && length(var.public_gateway_blocked_paths) > 0 ? 1 : 0
+
+  triggers = {
+    manifest_sha    = sha1(local.public_gateway_blocked_paths_manifest)
+    name            = "public-gateway-blocked-paths"
+    namespace       = local.istio_namespace
+    kubectl_path    = var.kubectl_path
+    kubeconfig_path = local.kubeconfig_path
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.public_gateway_blocked_paths_manifest}\nYAML"
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete authorizationpolicy ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+  }
+
+  depends_on = [null_resource.public_gateway]
+}
+
+resource "null_resource" "public_gateway_local_rate_limit" {
+  count = var.enabled && var.enable_public_ingress_gateway && var.enable_public_gateway_local_rate_limit ? 1 : 0
+
+  triggers = {
+    manifest_sha    = sha1(local.public_gateway_local_rate_limit_manifest)
+    name            = "public-gateway-local-rate-limit"
+    namespace       = local.istio_namespace
+    kubectl_path    = var.kubectl_path
+    kubeconfig_path = local.kubeconfig_path
+  }
+
+  provisioner "local-exec" {
+    command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.public_gateway_local_rate_limit_manifest}\nYAML"
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete envoyfilter ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [null_resource.public_gateway]

@@ -44,6 +44,8 @@
 - Added an optional Go pprof pull-mode profiling lab to validate runtime
   profile types such as CPU, memory, mutex, block, and goroutine through
   Grafana Alloy and Pyroscope.
+- Added optional no-cost public Istio Gateway hardening with browser security
+  headers, scanner path denial, and opt-in local rate limiting.
 
 ### Decisions
 
