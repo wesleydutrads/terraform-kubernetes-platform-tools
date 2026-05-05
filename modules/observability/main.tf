@@ -502,7 +502,7 @@ resource "helm_release" "prometheus_stack" {
                   ]
                   profileTypeId = "process_cpu:cpu:nanoseconds:cpu:nanoseconds"
                   customQuery   = true
-                  query         = "{service_name=\"$${__span.tags.service_name}\"}"
+                  query         = "{$$__tags}"
                 } : null
                 tracesToMetrics = {
                   datasourceUid      = "prometheus"

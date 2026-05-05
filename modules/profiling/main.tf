@@ -62,7 +62,7 @@ resource "helm_release" "pyroscope" {
   values = [
     yamlencode({
       pyroscope = {
-        disableSelfProfile = false
+        disableSelfProfile = true
         extraArgs = {
           "log.level"                      = "info"
           "pyroscopedb.max-block-duration" = "30m"

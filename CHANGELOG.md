@@ -27,6 +27,10 @@
   ServiceEntry generation for MySQL private DNS names.
 - Removed the non-existent `groups` OAuth scope from oauth2-proxy clients while
   keeping group claims available through Keycloak protocol mappers.
+- Disabled Pyroscope internal self-profiling so the Alloy pprof scraper remains
+  the single profile collector for the Pyroscope process.
+- Fixed Grafana Tempo trace-to-profiles provisioning to use the `${__tags}`
+  matcher instead of an interpolated empty `service_name` value.
 
 ### Decisions
 
