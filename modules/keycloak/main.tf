@@ -32,6 +32,9 @@ locals {
     metadata:
       name: keycloak
       namespace: ${var.namespace}
+      labels:
+        platform.wesleydutra.online/exposure-class: identity
+        platform.wesleydutra.online/auth: native
 %{if var.external_dns_target != null~}
       annotations:
         external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}

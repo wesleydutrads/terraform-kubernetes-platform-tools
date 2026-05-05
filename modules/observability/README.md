@@ -101,9 +101,10 @@ Kiali still requires a Kubernetes ServiceAccount token when
 - `kiali-readonly`, bound to the Kiali viewer ClusterRole
 
 Grafana admin login uses the configured admin password. Read-only Grafana access
-can be provided through anonymous Viewer mode. When the optional Gateway token
-policy is enabled, the request must pass that policy before reaching Grafana,
-Kiali, or tracing.
+can be provided through anonymous Viewer mode for labs, but production-like
+environments should prefer OIDC groups and keep anonymous access disabled. When
+the optional Gateway token policy is enabled, the request must pass that policy
+before reaching Grafana, Kiali, or tracing.
 
 ## OIDC
 
@@ -111,6 +112,11 @@ When the Keycloak module is enabled, pass the issuer URL and client secrets
 through `oidc`. Grafana uses generic OAuth. Kiali can use
 `kiali_auth_strategy="openid"` with the same issuer; in this mode the module
 creates the required `kiali` secret containing `oidc-secret`.
+
+Grafana and tracing share the Grafana login flow. If
+`enable_grafana_anonymous_viewer=false`, both endpoints redirect unauthenticated
+users to login and authorization is controlled by Keycloak groups such as
+`platform-admin` and `platform-readonly`.
 
 ## Related Documents
 

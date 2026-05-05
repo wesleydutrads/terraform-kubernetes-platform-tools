@@ -10,6 +10,9 @@ locals {
     metadata:
       name: otel-demo
       namespace: ${var.opentelemetry_demo_namespace}
+      labels:
+        platform.wesleydutra.online/exposure-class: lab
+        platform.wesleydutra.online/auth: public
 %{if var.external_dns_target != null~}
       annotations:
         external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}
@@ -31,6 +34,9 @@ locals {
     metadata:
       name: otel-demo-loadgen
       namespace: ${var.opentelemetry_demo_namespace}
+      labels:
+        platform.wesleydutra.online/exposure-class: lab
+        platform.wesleydutra.online/auth: oauth2-proxy
 %{if var.external_dns_target != null~}
       annotations:
         external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}

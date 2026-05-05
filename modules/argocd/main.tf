@@ -8,6 +8,9 @@ locals {
     metadata:
       name: argocd
       namespace: ${var.namespace}
+      labels:
+        platform.wesleydutra.online/exposure-class: administrative
+        platform.wesleydutra.online/auth: oidc
 %{if var.external_dns_target != null~}
       annotations:
         external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}

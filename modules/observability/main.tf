@@ -133,6 +133,9 @@ ${local.storage_service_entry_hosts}
     metadata:
       name: prometheus
       namespace: ${var.namespace}
+      labels:
+        platform.wesleydutra.online/exposure-class: administrative
+        platform.wesleydutra.online/auth: oauth2-proxy
 %{if var.external_dns_target != null~}
       annotations:
         external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}
@@ -281,6 +284,9 @@ ${local.oauth_hosts_service_entry}
     metadata:
       name: kiali
       namespace: ${var.namespace}
+      labels:
+        platform.wesleydutra.online/exposure-class: administrative
+        platform.wesleydutra.online/auth: oidc
 %{if var.external_dns_target != null~}
       annotations:
         external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}
@@ -310,6 +316,9 @@ ${local.oauth_hosts_service_entry}
     metadata:
       name: grafana
       namespace: ${var.namespace}
+      labels:
+        platform.wesleydutra.online/exposure-class: administrative
+        platform.wesleydutra.online/auth: oidc
 %{if var.external_dns_target != null~}
       annotations:
         external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}
@@ -331,6 +340,9 @@ ${local.oauth_hosts_service_entry}
     metadata:
       name: tracing
       namespace: ${var.namespace}
+      labels:
+        platform.wesleydutra.online/exposure-class: administrative
+        platform.wesleydutra.online/auth: oidc
 %{if var.external_dns_target != null~}
       annotations:
         external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}

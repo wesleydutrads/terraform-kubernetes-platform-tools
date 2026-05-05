@@ -159,6 +159,9 @@ locals {
     metadata:
       name: public-fallback
       namespace: ${local.istio_namespace}
+      labels:
+        platform.wesleydutra.online/exposure-class: fallback
+        platform.wesleydutra.online/auth: none
     spec:
       parentRefs:
         - name: public
@@ -644,6 +647,9 @@ locals {
     metadata:
       name: bookinfo
       namespace: default
+      labels:
+        platform.wesleydutra.online/exposure-class: lab
+        platform.wesleydutra.online/auth: public
       annotations:
         external-dns.alpha.kubernetes.io/ttl: "60"
     spec:

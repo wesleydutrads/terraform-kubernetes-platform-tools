@@ -35,6 +35,28 @@ Root stacks using these modules should provide:
 4. Run `keycloak-config` after Keycloak is reachable.
 5. Reconfigure Argo CD, Grafana, and Kiali to use Keycloak OIDC clients.
 
+## Public Route Classification
+
+HTTPRoutes created by these modules include labels that describe exposure and
+authentication. This keeps public routes auditable without depending on host
+name conventions alone.
+
+```mermaid
+flowchart LR
+  Internet[Internet] --> Gateway[public Istio Gateway]
+  Gateway --> Admin[administrative / oidc or oauth2-proxy]
+  Gateway --> Identity[identity / native]
+  Gateway --> Lab[lab / public or oauth2-proxy]
+  Gateway --> Fallback[fallback / none]
+```
+
+Use these labels when reviewing public surfaces:
+
+- `platform.wesleydutra.online/exposure-class`: `administrative`, `identity`,
+  `lab`, or `fallback`.
+- `platform.wesleydutra.online/auth`: `oidc`, `oauth2-proxy`, `native`,
+  `public`, or `none`.
+
 ## Persistence Guidance
 
 - Argo CD does not use MySQL by default; Kubernetes stores Applications, Secrets, and ConfigMaps, while Redis is cache.
