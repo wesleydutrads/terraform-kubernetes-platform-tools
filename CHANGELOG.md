@@ -25,6 +25,8 @@
 - Added a dedicated `lab-apps` module for OpenTelemetry Demo and Bookinfo auto-instrumentation labs.
 - Added Keycloak database `ExternalName` Service support and DNS-based
   ServiceEntry generation for MySQL private DNS names.
+- Removed the non-existent `groups` OAuth scope from oauth2-proxy clients while
+  keeping group claims available through Keycloak protocol mappers.
 
 ### Decisions
 

@@ -555,7 +555,7 @@ resource "helm_release" "load_generator_oauth2_proxy" {
         "cookie-secure"        = "true"
         "cookie-samesite"      = "lax"
         "cookie-expire"        = "8h"
-        scope                  = "openid profile email groups"
+        scope                  = "openid profile email"
         "allowed-group"        = "platform-admins"
       }
       resources = {
