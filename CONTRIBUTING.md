@@ -4,18 +4,22 @@ Contributions are welcome.
 
 ## Local Workflow
 
-Run checks before opening a pull request:
+Install the local Git hooks first:
 
 ```bash
-terraform fmt -recursive -check
+make hooks
 ```
 
-If a module has examples, initialize and validate from the example directory:
+Run the same checks manually when needed:
 
 ```bash
-terraform init
-terraform validate
+make validate
+make lint
 ```
+
+The hooks run `terraform fmt`, initialize each module with `-backend=false`,
+validate module syntax and providers, run TFLint, and check YAML formatting.
+Install tools with Homebrew where possible.
 
 ## Module Guidelines
 

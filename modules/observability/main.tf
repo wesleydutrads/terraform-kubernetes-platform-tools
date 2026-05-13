@@ -35,7 +35,6 @@ locals {
       }
     )
   }
-  opentelemetry_instrumentation_ref        = "${var.namespace}/${var.opentelemetry_instrumentation_name}"
   opentelemetry_collector_endpoint         = "http://${var.opentelemetry_collector_name}.${var.namespace}.svc.cluster.local:4318"
   opentelemetry_instrumentation_manifest   = <<-YAML
     apiVersion: opentelemetry.io/v1alpha1

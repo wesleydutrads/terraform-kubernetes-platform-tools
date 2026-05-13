@@ -256,12 +256,6 @@ variable "opentelemetry_instrumentation_name" {
   default     = "platform"
 }
 
-variable "central_egress_waypoint_name" {
-  description = "Name of the shared Istio ambient waypoint used by the OpenTelemetry Demo namespace."
-  type        = string
-  default     = "egress-waypoint"
-}
-
 variable "enable_tempo_metrics_generator" {
   description = "Enable Tempo metrics-generator so Grafana can query trace-derived metrics and service maps."
   type        = bool

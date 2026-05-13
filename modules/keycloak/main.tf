@@ -18,13 +18,12 @@ resource "random_password" "database" {
 }
 
 locals {
-  kubeconfig_path       = pathexpand(var.kubeconfig_path)
-  admin_password        = var.admin_password != null ? var.admin_password : try(random_password.admin[0].result, null)
-  database_password     = var.database_password != null ? var.database_password : try(random_password.database[0].result, null)
-  database_service_host = "${var.database_external_name_service_name}.${var.namespace}.svc.cluster.local"
-  database_host         = var.database_host != null ? var.database_host : ""
-  database_url          = var.database_host != null ? "jdbc:mysql://${local.database_host}:${var.database_port}/${var.database_name}" : ""
-  database_host_is_ip   = var.database_host != null ? can(regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$", var.database_host)) : false
+  kubeconfig_path     = pathexpand(var.kubeconfig_path)
+  admin_password      = var.admin_password != null ? var.admin_password : try(random_password.admin[0].result, null)
+  database_password   = var.database_password != null ? var.database_password : try(random_password.database[0].result, null)
+  database_host       = var.database_host != null ? var.database_host : ""
+  database_url        = var.database_host != null ? "jdbc:mysql://${local.database_host}:${var.database_port}/${var.database_name}" : ""
+  database_host_is_ip = var.database_host != null ? can(regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$", var.database_host)) : false
 
   route_manifest = <<-YAML
     apiVersion: gateway.networking.k8s.io/v1
