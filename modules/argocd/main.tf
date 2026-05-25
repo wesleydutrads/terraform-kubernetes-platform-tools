@@ -115,7 +115,9 @@ resource "helm_release" "this" {
           }
       }) : "{}"))
       server = {
-        extraArgs = ["--insecure"]
+        extraArgs    = ["--insecure"]
+        nodeSelector = var.node_selector
+        tolerations  = var.tolerations
         service = {
           type = "ClusterIP"
         }
@@ -131,6 +133,8 @@ resource "helm_release" "this" {
         }
       }
       controller = {
+        nodeSelector = var.node_selector
+        tolerations  = var.tolerations
         resources = {
           requests = {
             cpu    = "100m"
@@ -143,6 +147,8 @@ resource "helm_release" "this" {
         }
       }
       repoServer = {
+        nodeSelector = var.node_selector
+        tolerations  = var.tolerations
         resources = {
           requests = {
             cpu    = "50m"
@@ -155,6 +161,8 @@ resource "helm_release" "this" {
         }
       }
       applicationSet = {
+        nodeSelector = var.node_selector
+        tolerations  = var.tolerations
         resources = {
           requests = {
             cpu    = "25m"
@@ -167,6 +175,8 @@ resource "helm_release" "this" {
         }
       }
       redis = {
+        nodeSelector = var.node_selector
+        tolerations  = var.tolerations
         resources = {
           requests = {
             cpu    = "25m"
@@ -179,7 +189,9 @@ resource "helm_release" "this" {
         }
       }
       dex = {
-        enabled = true
+        enabled      = true
+        nodeSelector = var.node_selector
+        tolerations  = var.tolerations
         resources = {
           requests = {
             cpu    = "25m"

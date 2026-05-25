@@ -75,6 +75,24 @@ variable "host_aliases" {
   default = []
 }
 
+variable "node_selector" {
+  description = "Node selector applied to Argo CD control-plane pods."
+  type        = map(string)
+  default     = {}
+}
+
+variable "tolerations" {
+  description = "Tolerations applied to Argo CD control-plane pods."
+  type = list(object({
+    key                = optional(string)
+    operator           = optional(string)
+    value              = optional(string)
+    effect             = optional(string)
+    toleration_seconds = optional(number)
+  }))
+  default = []
+}
+
 variable "oidc" {
   description = "Optional OIDC configuration for Argo CD."
   type = object({

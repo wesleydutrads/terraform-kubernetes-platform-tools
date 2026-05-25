@@ -11,6 +11,7 @@ API Gateway.
 - ServiceEntry for the public Argo CD hostname
 - resource requests and limits tuned for small Always Free clusters
 - optional OIDC configuration for Keycloak SSO
+- optional `nodeSelector` and `tolerations` for system/platform node pools
 
 ## Access Flow
 
@@ -37,6 +38,17 @@ module "argocd" {
   gateway_name      = module.platform.gateway_name
   gateway_namespace = module.platform.gateway_namespace
   kubeconfig_path   = "~/.kube/config"
+
+  node_selector = {
+    "node/reserved-for" = "system"
+  }
+  tolerations = [
+    {
+      key      = "CriticalAddonsOnly"
+      operator = "Exists"
+      effect   = "NoSchedule"
+    }
+  ]
 }
 ```
 
