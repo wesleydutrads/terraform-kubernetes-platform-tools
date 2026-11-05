@@ -158,3 +158,26 @@ variable "resources" {
     }
   }
 }
+
+variable "additional_hosts" {
+  description = "Opt-in public hostname aliases retained on existing HTTPRoutes and ServiceEntries; primary application and redirect URLs remain unchanged."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition     = alltrue([for host in var.additional_hosts : can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", host)) && strcontains(host, ".")])
+    error_message = "Additional hosts must be explicit DNS hostnames without wildcards, schemes or paths."
+  }
+}
+
+variable "hostname_url" {
+  description = "Explicit Keycloak frontend URL, independent of route hostname; null uses https://host. Preserve the deployed value during additive domain coexistence."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.hostname_url == null ? true : can(regex("^https://[a-z0-9][a-z0-9.-]*[a-z0-9]$", var.hostname_url))
+    error_message = "hostname_url must be null or an HTTPS origin without path."
+  }
+}

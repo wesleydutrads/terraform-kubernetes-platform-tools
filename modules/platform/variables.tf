@@ -5,8 +5,13 @@ variable "enabled" {
 }
 
 variable "domain_name" {
-  description = "Base DNS zone used by the public gateway."
+  description = "Base DNS zone used by the public gateway and to restrict DNS management."
   type        = string
+
+  validation {
+    condition     = trimspace(var.domain_name) != "" && var.domain_name == trimspace(var.domain_name) && !strcontains(var.domain_name, "*")
+    error_message = "domain_name must be a nonempty base domain, without whitespace or wildcard."
+  }
 }
 
 variable "acme_email" {
@@ -275,4 +280,154 @@ variable "dns01_webhook_solver_name" {
   description = "cert-manager DNS01 webhook solver name."
   type        = string
   default     = "oci"
+}
+
+variable "dns_provider" {
+  description = "DNS provider for cert-manager DNS01 and ExternalDNS. OCI remains the default."
+  type        = string
+  default     = "oci"
+
+  validation {
+    condition     = contains(["oci", "cloudflare"], var.dns_provider)
+    error_message = "dns_provider must be oci or cloudflare."
+  }
+}
+
+variable "cluster_issuer_name" {
+  description = "ClusterIssuer name and prefix of its ACME account Secret. Choose a new name when migrating providers to preserve the legacy issuer."
+  type        = string
+  default     = "letsencrypt-prod"
+
+  validation {
+    condition     = length(var.cluster_issuer_name) <= 241 && can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.cluster_issuer_name))
+    error_message = "cluster_issuer_name must be a DNS label of at most 241 characters, leaving room for the account Secret suffix."
+  }
+}
+
+variable "cloudflare_api_token_secret_name" {
+  description = "Existing Secret containing the Cloudflare API token in cert-manager's cluster resource namespace (normally cert-manager). Only the name is managed here, never the token."
+  type        = string
+  default     = null
+}
+
+variable "cloudflare_api_token_secret_key" {
+  description = "Key in the existing cert-manager Cloudflare token Secret."
+  type        = string
+  default     = "api-token"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._-]+$", var.cloudflare_api_token_secret_key))
+    error_message = "cloudflare_api_token_secret_key must be a nonempty valid Secret data key."
+  }
+}
+
+variable "external_dns_namespace" {
+  description = "Existing namespace of the ExternalDNS release and its token Secret. Changing it migrates the Helm release."
+  type        = string
+  default     = "kube-system"
+}
+
+variable "external_dns_cloudflare_api_token_secret_name" {
+  description = "Existing Cloudflare API token Secret in external_dns_namespace. Only the reference is passed to Helm."
+  type        = string
+  default     = null
+}
+
+variable "external_dns_cloudflare_api_token_secret_key" {
+  description = "Key in the existing ExternalDNS Cloudflare token Secret."
+  type        = string
+  default     = "api-token"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._-]+$", var.external_dns_cloudflare_api_token_secret_key))
+    error_message = "external_dns_cloudflare_api_token_secret_key must be a nonempty valid Secret data key."
+  }
+}
+
+variable "external_dns_zone_id_filters" {
+  description = "Zone IDs ExternalDNS may manage, additionally restricted by domain_name. Required for Cloudflare; empty preserves legacy OCI behavior."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for zone in var.external_dns_zone_id_filters : trimspace(zone) != ""])
+    error_message = "external_dns_zone_id_filters cannot contain empty zone IDs."
+  }
+}
+
+variable "external_dns_txt_owner_id" {
+  description = "Unique TXT registry owner ID. Required for Cloudflare; null preserves the chart's legacy default for OCI. Preserve an existing owner ID when adopting its records."
+  type        = string
+  default     = null
+}
+
+variable "external_dns_policy" {
+  description = "ExternalDNS record policy. Legacy default is sync; upsert-only is recommended during migration."
+  type        = string
+  default     = "sync"
+
+  validation {
+    condition     = contains(["sync", "upsert-only", "create-only"], var.external_dns_policy)
+    error_message = "external_dns_policy must be sync, upsert-only or create-only."
+  }
+}
+
+variable "preserve_legacy_oci_webhook" {
+  description = "Retain the legacy OCI DNS01 webhook while migrating to Cloudflare. Disable only during an explicit decommissioning phase after checking dependent certificates and rollback needs."
+  type        = bool
+  default     = false
+}
+
+variable "external_dns_regex_domain_filter" {
+  description = "Optional ExternalDNS regex domain filter. A nonempty regex overrides domainFilters upstream: anchor it and include the exact authorized domain and hostnames explicitly. Zone ID filters still apply."
+  type        = string
+  default     = null
+}
+
+variable "external_dns_cloudflare_proxied" {
+  description = "Proxy Cloudflare-managed public A/AAAA/CNAME records by default. Keep true for public application endpoints; per-resource cloudflare-proxied annotations must not disable it. Ignored for OCI."
+  type        = bool
+  default     = true
+}
+
+variable "public_gateway_listener_names" {
+  description = "Stable listener names for the primary application domain; retain existing names during coexistence."
+  type = object({
+    http  = string
+    https = string
+  })
+  default  = { http = "http", https = "https" }
+  nullable = false
+
+  validation {
+    condition     = alltrue([for name in values(var.public_gateway_listener_names) : length(name) <= 63 && can(regex("^[a-z]([-a-z0-9]*[a-z0-9])?$", name))]) && var.public_gateway_listener_names.http != var.public_gateway_listener_names.https
+    error_message = "Primary listener names must be distinct Kubernetes section names (1-63 lowercase characters)."
+  }
+}
+
+variable "additional_application_domains" {
+  description = "Opt-in domain aliases. Keys are base domains; values preserve live listener names and reference existing TLS Secrets in istio-system. Does not manage alias certificates, issuers or DNS zones."
+  type = map(object({
+    http_listener_name  = string
+    https_listener_name = optional(string)
+    tls_secret_name     = optional(string)
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([for domain, alias in var.additional_application_domains :
+      can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", domain)) && strcontains(domain, ".") &&
+      can(regex("^[a-z]([-a-z0-9]*[a-z0-9])?$", alias.http_listener_name)) && length(alias.http_listener_name) <= 63 &&
+      ((alias.https_listener_name == null) == (alias.tls_secret_name == null)) &&
+      (alias.https_listener_name == null ? true : can(regex("^[a-z]([-a-z0-9]*[a-z0-9])?$", alias.https_listener_name)) && length(alias.https_listener_name) <= 63) &&
+      (alias.tls_secret_name == null ? true : can(regex("^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$", alias.tls_secret_name)))
+    ])
+    error_message = "Aliases require base DNS domains, valid listener names and either both HTTPS listener and existing TLS Secret or neither."
+  }
+
+  validation {
+    condition     = length(distinct(flatten([for alias in values(var.additional_application_domains) : compact([alias.http_listener_name, alias.https_listener_name])]))) == length(flatten([for alias in values(var.additional_application_domains) : compact([alias.http_listener_name, alias.https_listener_name])]))
+    error_message = "All primary and alias listener names must be unique, including currently disabled HTTPS listeners."
+  }
 }

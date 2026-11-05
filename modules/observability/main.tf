@@ -1,4 +1,10 @@
 locals {
+  route_hosts = {
+    kiali      = distinct(concat([var.hosts.kiali], lookup(var.additional_hosts, "kiali", [])))
+    grafana    = distinct(concat([var.hosts.grafana], lookup(var.additional_hosts, "grafana", [])))
+    tracing    = distinct(concat([var.hosts.tracing], lookup(var.additional_hosts, "tracing", [])))
+    prometheus = distinct(compact(concat([try(var.hosts.prometheus, null)], lookup(var.additional_hosts, "prometheus", []))))
+  }
   kubeconfig_path             = pathexpand(var.kubeconfig_path)
   tracing_host                = var.hosts.tracing
   prometheus_host             = try(var.hosts.prometheus, null)
@@ -6,10 +12,10 @@ locals {
   tracing_backend_port        = var.enable_tempo ? 80 : 16686
   oidc_issuer_host            = local.oidc_enabled ? regex("^https?://([^/]+)", var.oidc.issuer_url)[0] : null
   oauth2_proxy_issuer_host    = var.oauth2_proxy == null ? null : regex("^https?://([^/]+)", nonsensitive(var.oauth2_proxy.issuer_url))[0]
-  monitoring_public_hosts     = distinct(compact([var.hosts.kiali, var.hosts.grafana, local.tracing_host]))
-  oauth_public_hosts          = distinct(compact([var.enable_prometheus_route ? local.prometheus_host : null]))
-  egress_public_hosts         = distinct(compact(concat(local.monitoring_public_hosts, [local.oidc_issuer_host])))
-  oauth_egress_hosts          = distinct(compact(concat(local.oauth_public_hosts, [local.oauth2_proxy_issuer_host])))
+  monitoring_public_hosts     = distinct(compact(concat(local.route_hosts.kiali, local.route_hosts.grafana, local.route_hosts.tracing)))
+  oauth_public_hosts          = var.enable_prometheus_route ? local.route_hosts.prometheus : []
+  egress_public_hosts         = distinct(compact(concat(local.monitoring_public_hosts, [local.oidc_issuer_host], var.additional_egress_hosts)))
+  oauth_egress_hosts          = distinct(compact(concat(local.oauth_public_hosts, [local.oauth2_proxy_issuer_host], var.additional_egress_hosts)))
   public_hosts_policy         = join("\n", [for host in local.monitoring_public_hosts : "                  - ${host}"])
   public_hosts_service_entry  = join("\n", [for host in local.egress_public_hosts : "        - ${host}"])
   oauth_hosts_service_entry   = join("\n", [for host in local.oauth_egress_hosts : "        - ${host}"])
@@ -144,7 +150,9 @@ ${local.storage_service_entry_hosts}
         - name: ${var.gateway_name}
           namespace: ${var.gateway_namespace}
       hostnames:
-        - ${local.prometheus_host}
+%{for host in local.route_hosts.prometheus~}
+        - ${host}
+%{endfor~}
       rules:
         - backendRefs:
             - name: prometheus-oauth2-proxy
@@ -295,7 +303,9 @@ ${local.oauth_hosts_service_entry}
         - name: ${var.gateway_name}
           namespace: ${var.gateway_namespace}
       hostnames:
-        - ${var.hosts.kiali}
+%{for host in local.route_hosts.kiali~}
+        - ${host}
+%{endfor~}
       rules:
         - filters:
             - type: RequestHeaderModifier
@@ -327,7 +337,9 @@ ${local.oauth_hosts_service_entry}
         - name: ${var.gateway_name}
           namespace: ${var.gateway_namespace}
       hostnames:
-        - ${var.hosts.grafana}
+%{for host in local.route_hosts.grafana~}
+        - ${host}
+%{endfor~}
       rules:
         - backendRefs:
             - name: monitoring-grafana
@@ -351,7 +363,9 @@ ${local.oauth_hosts_service_entry}
         - name: ${var.gateway_name}
           namespace: ${var.gateway_namespace}
       hostnames:
-        - ${local.tracing_host}
+%{for host in local.route_hosts.tracing~}
+        - ${host}
+%{endfor~}
       rules:
         - backendRefs:
             - name: ${local.tracing_backend}
@@ -388,6 +402,7 @@ resource "kubernetes_secret_v1" "grafana_oidc" {
 }
 
 resource "helm_release" "prometheus_stack" {
+  version          = var.prometheus_stack_chart_version
   count            = var.enabled && var.enable_prometheus_stack ? 1 : 0
   name             = "monitoring"
   repository       = "https://prometheus-community.github.io/helm-charts"
@@ -1426,7 +1441,7 @@ resource "null_resource" "opentelemetry_instrumentation" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete instrumentation ${self.triggers.instrumentation_name} -n ${self.triggers.instrumentation_ns} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete instrumentation ${self.triggers.instrumentation_name} -n ${self.triggers.instrumentation_ns} --ignore-not-found"
   }
 
   depends_on = [helm_release.opentelemetry_operator, helm_release.opentelemetry_collector_gateway]
@@ -1470,6 +1485,7 @@ resource "helm_release" "jaeger" {
 }
 
 resource "helm_release" "kiali" {
+  version          = var.kiali_chart_version
   count            = var.enabled && var.enable_kiali ? 1 : 0
   name             = "kiali"
   repository       = "https://kiali.org/helm-charts"

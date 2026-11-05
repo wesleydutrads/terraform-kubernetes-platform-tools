@@ -1,4 +1,6 @@
 locals {
+  demo_hosts                                   = distinct(concat([local.opentelemetry_demo_host], lookup(var.additional_hosts, "opentelemetry_demo", [])))
+  loadgen_hosts                                = distinct(concat([local.opentelemetry_loadgen_host], lookup(var.additional_hosts, "opentelemetry_loadgen", [])))
   kubeconfig_path                              = pathexpand(var.kubeconfig_path)
   opentelemetry_demo_host                      = coalesce(var.opentelemetry_demo_host, try(var.hosts.opentelemetry_demo, null), replace(var.hosts.grafana, "/^grafana\\./", "otel-demo."))
   opentelemetry_loadgen_host                   = coalesce(try(var.hosts.opentelemetry_loadgen, null), replace(var.hosts.grafana, "/^grafana\\./", "loadgen."))
@@ -22,7 +24,9 @@ locals {
         - name: ${var.gateway_name}
           namespace: ${var.gateway_namespace}
       hostnames:
-        - ${local.opentelemetry_demo_host}
+%{for host in local.demo_hosts~}
+        - ${host}
+%{endfor~}
       rules:
         - backendRefs:
             - name: frontend-proxy
@@ -46,7 +50,9 @@ locals {
         - name: ${var.gateway_name}
           namespace: ${var.gateway_namespace}
       hostnames:
-        - ${local.opentelemetry_loadgen_host}
+%{for host in local.loadgen_hosts~}
+        - ${host}
+%{endfor~}
       rules:
         - backendRefs:
             - name: load-generator-oauth2-proxy
@@ -60,7 +66,9 @@ locals {
       namespace: ${var.istio_root_namespace}
     spec:
       hosts:
-        - ${local.opentelemetry_demo_host}
+%{for host in local.demo_hosts~}
+        - ${host}
+%{endfor~}
       location: MESH_EXTERNAL
       ports:
         - number: 443
@@ -78,8 +86,13 @@ locals {
       exportTo:
         - "*"
       hosts:
-        - ${local.opentelemetry_loadgen_host}
+%{for host in local.loadgen_hosts~}
+        - ${host}
+%{endfor~}
         - ${var.oauth2_proxy == null ? local.opentelemetry_loadgen_host : regex("^https?://([^/]+)", nonsensitive(var.oauth2_proxy.issuer_url))[0]}
+%{for host in var.additional_egress_hosts~}
+        - ${host}
+%{endfor~}
       location: MESH_EXTERNAL
       ports:
         - number: 80
@@ -525,7 +538,7 @@ resource "null_resource" "opentelemetry_demo_route" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete httproute ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete httproute ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [helm_release.opentelemetry_demo]
@@ -611,7 +624,7 @@ resource "null_resource" "opentelemetry_loadgen_route" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete httproute ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete httproute ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [helm_release.load_generator_oauth2_proxy]
@@ -634,7 +647,7 @@ resource "null_resource" "opentelemetry_demo_public_host_service_entry" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete serviceentry ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete serviceentry ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [null_resource.opentelemetry_demo_route]
@@ -657,7 +670,7 @@ resource "null_resource" "opentelemetry_loadgen_public_host_service_entry" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete serviceentry ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete serviceentry ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [null_resource.opentelemetry_loadgen_route]

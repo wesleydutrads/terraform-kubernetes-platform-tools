@@ -1,0 +1,13 @@
+COMPATIBILIDADE DE DOMÍNIOS E CONTEXTO KUBERNETES
+
+Os contratos adicionais de hosts e listeners são aditivos. Mapas/listas vazios mantêm o domínio único anterior. O certificado TLS de um alias deve ser referenciado explicitamente pelo Secret existente; não inferir nomes ou assumir ownership de certificados adicionais. Nomes de listeners não podem colidir, e pares HTTPS/Secret incompletos são recusados. Rotas e ServiceEntries devem preservar a união dos hosts necessários.
+
+Coexistência de rotas não é migração de autenticação. Preservar a URL canônica e o issuer efetivamente vivos de cada aplicação, inclusive quando o estado Helm histórico divergir do ConfigMap ou Deployment em execução. Argo CD aceita url opcional independente do host; null mantém https://host. Keycloak aceita hostname_url opcional; null mantém a composição anterior. Referências de segredo, callbacks e RBAC não devem ser reconstruídos por suposição.
+
+Providers e comandos de criação/destruição devem selecionar o mesmo kubeconfig e contexto explícitos. Os destroy provisioners requerem LAB_KUBECTL, LAB_KUBE_CONTEXT e KUBECONFIG disponíveis no processo Terraform. O consumidor deve verificar o executável canônico, o wrapper e todas as dependências do plugin exec do kubeconfig. A mera presença do contexto em um arquivo não garante que os comandos de criação e destruição atinjam o mesmo cluster. Não executar caminhos ou comandos históricos persistidos sem reconciliá-los.
+
+Alteração de hashes ou triggers pode substituir null_resources e disparar destroy provisioners. Não afirmar operação in-place apenas porque o manifesto é aditivo. Antes de aplicar, revisar o plano real e o impacto dos hooks, capturar os objetos/configurações efetivamente vivos e definir recuperação seletiva. Preservar os controles de segurança e restaurá-los primeiro; ServiceAccounts e Services precedem workloads, e rotas públicas vêm depois da prontidão. Conferir identidade, namespace, nomes, UID e concorrência antes de restaurar ou remover objetos.
+
+A recuperação não deve usar values históricos de Helm como se fossem runtime vivo quando houver drift. Recuperar objetos necessários com contexto explícito e reconciliar Helm/estado posteriormente, sem restaurar state antigo por cima de gravações novas. Referências de TLS, DNS e identidade devem permanecer disponíveis para rollback.
+
+A suíte tests/test_domain_coexistence.py renderiza fixtures sintéticas a partir das expressões reais, sem chamadas a cluster. Ela verifica o default de domínio único, listeners estáveis, alias HTTP, hosts das rotas e ServiceEntries e rejeição de colisões ou TLS incompleto. Testes offline não comprovam DNS público, renovação TLS, login, custos ou aplicação segura de qualquer consumidor.

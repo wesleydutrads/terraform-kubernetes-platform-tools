@@ -1,8 +1,9 @@
 locals {
+  public_hosts          = distinct(concat([var.host], var.additional_hosts))
   kubeconfig_path       = pathexpand(var.kubeconfig_path)
   oidc_issuer_host      = var.oauth2_proxy == null ? null : regex("^https?://([^/]+)", nonsensitive(var.oauth2_proxy.issuer_url))[0]
   storage_endpoint_host = var.storage == null ? null : nonsensitive(replace(replace(var.storage.endpoint, "https://", ""), "http://", ""))
-  service_entry_hosts   = distinct(compact([var.host, local.oidc_issuer_host, local.storage_endpoint_host]))
+  service_entry_hosts   = distinct(compact(concat(local.public_hosts, [local.oidc_issuer_host, local.storage_endpoint_host], var.additional_egress_hosts)))
   service_entry_host_block = join("\n", [
     for host in local.service_entry_hosts : "        - ${host}"
   ])
@@ -24,7 +25,9 @@ locals {
         - name: ${var.gateway_name}
           namespace: ${var.gateway_namespace}
       hostnames:
-        - ${var.host}
+%{for host in local.public_hosts~}
+        - ${host}
+%{endfor~}
       rules:
         - backendRefs:
             - name: pyroscope-oauth2-proxy

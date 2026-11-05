@@ -1,31 +1,42 @@
 locals {
-  kubeconfig_path                          = pathexpand(var.kubeconfig_path)
-  istio_namespace                          = "istio-system"
-  wildcard_secret_name                     = "wildcard-${replace(var.domain_name, ".", "-")}-tls"
-  bookinfo_host                            = coalesce(var.bookinfo_host, "bookinfo.${var.domain_name}")
-  letsencrypt_prod_manifest                = <<-YAML
-    apiVersion: cert-manager.io/v1
-    kind: ClusterIssuer
-    metadata:
-      name: letsencrypt-prod
-    spec:
-      acme:
-        email: ${var.acme_email}
-        server: https://acme-v02.api.letsencrypt.org/directory
-        privateKeySecretRef:
-          name: letsencrypt-prod-account-key
-        solvers:
-          - selector:
-              dnsZones:
-                - ${var.domain_name}
-            dns01:
-              webhook:
-                groupName: ${var.dns01_webhook_group_name}
-                solverName: ${var.dns01_webhook_solver_name}
-                config:
-                  compartmentOCID: ${var.compartment_ocid}
-                  region: ${var.region}
-    YAML
+  kubeconfig_path      = pathexpand(var.kubeconfig_path)
+  istio_namespace      = "istio-system"
+  wildcard_secret_name = "wildcard-${replace(var.domain_name, ".", "-")}-tls"
+  bookinfo_host        = coalesce(var.bookinfo_host, "bookinfo.${var.domain_name}")
+  application_domains  = distinct(concat([var.domain_name], keys(var.additional_application_domains)))
+  bookinfo_hosts       = distinct(concat([local.bookinfo_host], [for domain in keys(var.additional_application_domains) : "bookinfo.${domain}"]))
+  letsencrypt_prod_manifest = yamlencode({
+    apiVersion = "cert-manager.io/v1"
+    kind       = "ClusterIssuer"
+    metadata   = { name = var.cluster_issuer_name }
+    spec = {
+      acme = {
+        email               = var.acme_email
+        server              = "https://acme-v02.api.letsencrypt.org/directory"
+        privateKeySecretRef = { name = "${var.cluster_issuer_name}-account-key" }
+        solvers = [{
+          selector = { dnsZones = [var.domain_name] }
+          dns01 = merge(var.dns_provider == "cloudflare" ? {
+            cloudflare = {
+              apiTokenSecretRef = {
+                name = var.cloudflare_api_token_secret_name
+                key  = var.cloudflare_api_token_secret_key
+              }
+            }
+            } : {}, var.dns_provider == "oci" ? {
+            webhook = {
+              groupName  = var.dns01_webhook_group_name
+              solverName = var.dns01_webhook_solver_name
+              config = {
+                compartmentOCID = var.compartment_ocid
+                region          = var.region
+              }
+            }
+          } : {})
+        }]
+      }
+    }
+  })
   wildcard_certificate_manifest            = <<-YAML
     apiVersion: cert-manager.io/v1
     kind: Certificate
@@ -35,7 +46,7 @@ locals {
     spec:
       secretName: ${local.wildcard_secret_name}
       issuerRef:
-        name: letsencrypt-prod
+        name: ${var.cluster_issuer_name}
         kind: ClusterIssuer
       dnsNames:
         - ${var.domain_name}
@@ -58,7 +69,7 @@ locals {
           name: public-gateway-options
       gatewayClassName: istio
       listeners:
-        - name: http
+        - name: ${var.public_gateway_listener_names.http}
           hostname: "*.${var.domain_name}"
           port: 80
           protocol: HTTP
@@ -66,7 +77,7 @@ locals {
             namespaces:
               from: All
 %{if var.enable_wildcard_certificate~}
-        - name: https
+        - name: ${var.public_gateway_listener_names.https}
           hostname: "*.${var.domain_name}"
           port: 443
           protocol: HTTPS
@@ -78,6 +89,28 @@ locals {
             namespaces:
               from: All
 %{endif~}
+%{for domain, alias in var.additional_application_domains~}
+        - name: ${alias.http_listener_name}
+          hostname: "*.${domain}"
+          port: 80
+          protocol: HTTP
+          allowedRoutes:
+            namespaces:
+              from: All
+%{if alias.https_listener_name != null~}
+        - name: ${alias.https_listener_name}
+          hostname: "*.${domain}"
+          port: 443
+          protocol: HTTPS
+          tls:
+            mode: Terminate
+            certificateRefs:
+              - name: ${alias.tls_secret_name}
+          allowedRoutes:
+            namespaces:
+              from: All
+%{endif~}
+%{endfor~}
     YAML
   public_gateway_fallback_manifest         = <<-YAML
     apiVersion: v1
@@ -167,7 +200,9 @@ locals {
         - name: public
           namespace: ${local.istio_namespace}
       hostnames:
-        - "*.${var.domain_name}"
+    %{for domain in local.application_domains}
+        - "*.${domain}"
+    %{endfor}
       rules:
         - backendRefs:
             - name: public-fallback
@@ -657,7 +692,9 @@ locals {
         - name: public
           namespace: ${local.istio_namespace}
       hostnames:
-        - ${local.bookinfo_host}
+%{for host in local.bookinfo_hosts~}
+        - ${host}
+%{endfor~}
       rules:
         - matches:
             - path:
@@ -677,7 +714,9 @@ locals {
       exportTo:
         - "*"
       hosts:
-        - ${local.bookinfo_host}
+%{for host in local.bookinfo_hosts~}
+        - ${host}
+%{endfor~}
       location: MESH_EXTERNAL
       ports:
         - number: 80
@@ -772,7 +811,7 @@ resource "helm_release" "cert_manager" {
 }
 
 resource "helm_release" "cert_manager_oci_webhook" {
-  count            = var.enabled && var.enable_cert_manager && var.enable_dns01_oci_webhook ? 1 : 0
+  count            = var.enabled && var.enable_cert_manager && var.enable_dns01_oci_webhook && (var.dns_provider == "oci" || var.preserve_legacy_oci_webhook) ? 1 : 0
   name             = "cert-manager-webhook-oci"
   chart            = "${path.module}/charts/cert-manager-webhook-oci"
   namespace        = kubernetes_namespace_v1.cert_manager[0].metadata[0].name
@@ -807,26 +846,31 @@ resource "helm_release" "external_dns" {
   name       = "external-dns"
   repository = "https://kubernetes-sigs.github.io/external-dns/"
   chart      = "external-dns"
-  namespace  = "kube-system"
+  namespace  = var.external_dns_namespace
   version    = var.external_dns_chart_version
 
   values = [
-    yamlencode({
+    yamlencode(merge({
       provider = {
-        name = "oci"
+        name = var.dns_provider
       }
-      policy           = "sync"
+      policy           = var.external_dns_policy
       sources          = var.external_dns_sources
       gatewayNamespace = local.istio_namespace
       domainFilters = [
         var.domain_name
       ]
-      extraArgs = [
-        "--oci-auth-instance-principal",
-        "--oci-compartment-ocid=${var.compartment_ocid}",
-        "--oci-zone-scope=GLOBAL",
-        "--gateway-name=public"
-      ]
+      extraArgs = concat(
+        var.dns_provider == "oci" ? [
+          "--oci-auth-instance-principal",
+          "--oci-compartment-ocid=${var.compartment_ocid}",
+          "--oci-zone-scope=GLOBAL"
+        ] : [],
+        var.dns_provider == "cloudflare" && var.external_dns_cloudflare_proxied ? ["--cloudflare-proxied"] : [],
+        ["--gateway-name=public"],
+        [for zone in var.external_dns_zone_id_filters : "--zone-id-filter=${zone}"],
+        try(trimspace(var.external_dns_regex_domain_filter) != "", false) ? ["--regex-domain-filter=${var.external_dns_regex_domain_filter}"] : []
+      )
       resources = {
         requests = {
           cpu    = "10m"
@@ -836,8 +880,32 @@ resource "helm_release" "external_dns" {
           memory = "128Mi"
         }
       }
-    })
+      },
+      var.external_dns_txt_owner_id != null ? { txtOwnerId = var.external_dns_txt_owner_id } : {},
+      var.dns_provider == "cloudflare" ? {
+        env = [{
+          name = "CF_API_TOKEN"
+          valueFrom = {
+            secretKeyRef = {
+              name = var.external_dns_cloudflare_api_token_secret_name
+              key  = var.external_dns_cloudflare_api_token_secret_key
+            }
+          }
+        }]
+      } : {}
+    ))
   ]
+
+  lifecycle {
+    precondition {
+      condition = var.dns_provider != "cloudflare" || (
+        try(trimspace(var.external_dns_cloudflare_api_token_secret_name) != "", false) &&
+        length(var.external_dns_zone_id_filters) > 0 &&
+        try(trimspace(var.external_dns_txt_owner_id) != "", false)
+      )
+      error_message = "Cloudflare ExternalDNS requires an existing token Secret name, explicit zone ID filters and a unique TXT owner ID."
+    }
+  }
 }
 
 resource "helm_release" "metrics_server" {
@@ -1004,7 +1072,14 @@ resource "null_resource" "letsencrypt_prod" {
     command = "${var.kubectl_path} --kubeconfig=${local.kubeconfig_path} apply -f - <<'YAML'\n${local.letsencrypt_prod_manifest}\nYAML"
   }
 
-  depends_on = [helm_release.cert_manager_oci_webhook]
+  lifecycle {
+    precondition {
+      condition     = var.dns_provider != "cloudflare" || try(trimspace(var.cloudflare_api_token_secret_name) != "", false)
+      error_message = "Cloudflare DNS01 requires an existing token Secret name in cert-manager's cluster resource namespace."
+    }
+  }
+
+  depends_on = [helm_release.cert_manager, helm_release.cert_manager_oci_webhook]
 }
 
 resource "null_resource" "wildcard_certificate" {
@@ -1036,6 +1111,13 @@ resource "null_resource" "wait_wildcard_certificate" {
 }
 
 resource "null_resource" "public_gateway" {
+  lifecycle {
+    precondition {
+      condition     = !contains(keys(var.additional_application_domains), var.domain_name) && length(setintersection(toset(values(var.public_gateway_listener_names)), toset(flatten([for alias in values(var.additional_application_domains) : compact([alias.http_listener_name, alias.https_listener_name])])))) == 0
+      error_message = "Alias domains must differ from domain_name and all primary and alias listener names must be unique."
+    }
+  }
+
   count = var.enabled && var.enable_public_ingress_gateway ? 1 : 0
 
   triggers = {
@@ -1085,7 +1167,7 @@ resource "null_resource" "public_gateway_security_headers" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete envoyfilter ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete envoyfilter ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [null_resource.public_gateway]
@@ -1108,7 +1190,7 @@ resource "null_resource" "public_gateway_blocked_paths" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete authorizationpolicy ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete authorizationpolicy ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [null_resource.public_gateway]
@@ -1131,7 +1213,7 @@ resource "null_resource" "public_gateway_local_rate_limit" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete envoyfilter ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete envoyfilter ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [null_resource.public_gateway]
@@ -1154,7 +1236,7 @@ resource "null_resource" "central_egress_waypoint" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete gateway ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete gateway ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [
@@ -1180,7 +1262,7 @@ resource "null_resource" "mesh_tracing" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete telemetry ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete telemetry ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [
@@ -1222,7 +1304,7 @@ resource "null_resource" "bookinfo_sample" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = self.triggers.delete_command
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete service productpage reviews ratings details -n default --ignore-not-found && \"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete deployment productpage-v1 reviews-v1 reviews-v2 reviews-v3 ratings-v1 details-v1 -n default --ignore-not-found && \"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete serviceaccount bookinfo-productpage bookinfo-reviews bookinfo-ratings bookinfo-details -n default --ignore-not-found"
   }
 
   depends_on = [kubernetes_labels.central_egress_waypoint_namespaces]
@@ -1245,7 +1327,7 @@ resource "null_resource" "bookinfo_route" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete httproute ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete httproute ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [null_resource.public_gateway, null_resource.bookinfo_sample]
@@ -1268,7 +1350,7 @@ resource "null_resource" "bookinfo_public_host_service_entry" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${self.triggers.kubectl_path} --kubeconfig=${self.triggers.kubeconfig_path} delete serviceentry ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
+    command = "\"$${LAB_KUBECTL:?runtime kubectl required}\" --kubeconfig=\"$${KUBECONFIG:?runtime kubeconfig required}\" --context=\"$${LAB_KUBE_CONTEXT:?runtime context required}\" delete serviceentry ${self.triggers.name} -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [null_resource.bookinfo_route]
