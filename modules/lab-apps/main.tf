@@ -13,8 +13,8 @@ locals {
       name: otel-demo
       namespace: ${var.opentelemetry_demo_namespace}
       labels:
-        platform.wesleydutra.online/exposure-class: lab
-        platform.wesleydutra.online/auth: public
+        platform.arcanjoconsultoria.com.br/exposure-class: lab
+        platform.arcanjoconsultoria.com.br/auth: public
 %{if var.external_dns_target != null~}
       annotations:
         external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}
@@ -39,8 +39,8 @@ locals {
       name: otel-demo-loadgen
       namespace: ${var.opentelemetry_demo_namespace}
       labels:
-        platform.wesleydutra.online/exposure-class: lab
-        platform.wesleydutra.online/auth: oauth2-proxy
+        platform.arcanjoconsultoria.com.br/exposure-class: lab
+        platform.arcanjoconsultoria.com.br/auth: oauth2-proxy
 %{if var.external_dns_target != null~}
       annotations:
         external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}

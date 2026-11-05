@@ -14,8 +14,8 @@ locals {
       name: pyroscope
       namespace: ${var.namespace}
       labels:
-        platform.wesleydutra.online/exposure-class: administrative
-        platform.wesleydutra.online/auth: oauth2-proxy
+        platform.arcanjoconsultoria.com.br/exposure-class: administrative
+        platform.arcanjoconsultoria.com.br/auth: oauth2-proxy
 %{if var.external_dns_target != null~}
       annotations:
         external-dns.alpha.kubernetes.io/target: ${var.external_dns_target}
