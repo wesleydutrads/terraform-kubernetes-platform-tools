@@ -193,8 +193,8 @@ locals {
       name: public-fallback
       namespace: ${local.istio_namespace}
       labels:
-        platform.wesleydutra.online/exposure-class: fallback
-        platform.wesleydutra.online/auth: none
+        platform.arcanjoconsultoria.com.br/exposure-class: fallback
+        platform.arcanjoconsultoria.com.br/auth: none
     spec:
       parentRefs:
         - name: public
@@ -683,8 +683,8 @@ locals {
       name: bookinfo
       namespace: default
       labels:
-        platform.wesleydutra.online/exposure-class: lab
-        platform.wesleydutra.online/auth: public
+        platform.arcanjoconsultoria.com.br/exposure-class: lab
+        platform.arcanjoconsultoria.com.br/auth: public
       annotations:
         external-dns.alpha.kubernetes.io/ttl: "60"
     spec:

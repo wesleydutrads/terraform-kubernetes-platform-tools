@@ -52,9 +52,9 @@ flowchart LR
 
 Use these labels when reviewing public surfaces:
 
-- `platform.wesleydutra.online/exposure-class`: `administrative`, `identity`,
+- `platform.arcanjoconsultoria.com.br/exposure-class`: `administrative`, `identity`,
   `lab`, or `fallback`.
-- `platform.wesleydutra.online/auth`: `oidc`, `oauth2-proxy`, `native`,
+- `platform.arcanjoconsultoria.com.br/auth`: `oidc`, `oauth2-proxy`, `native`,
   `public`, or `none`.
 
 ## Persistence Guidance
