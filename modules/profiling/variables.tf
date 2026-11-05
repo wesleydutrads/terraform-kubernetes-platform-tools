@@ -55,6 +55,21 @@ variable "chart_version" {
   default     = "1.18.1"
 }
 
+variable "compactor_blocks_retention_period_seconds" {
+  description = "Retenção opt-in por idade dos blocos Pyroscope v1, em segundos inteiros. null omite a flag e preserva o comportamento anterior; 0 desabilita. Valores positivos permitem exclusão permanente do histórico anterior ao período."
+  type        = number
+  default     = null
+
+  validation {
+    condition = var.compactor_blocks_retention_period_seconds == null ? true : (
+      var.compactor_blocks_retention_period_seconds >= 0 &&
+      var.compactor_blocks_retention_period_seconds <= 9223372036 &&
+      floor(var.compactor_blocks_retention_period_seconds) == var.compactor_blocks_retention_period_seconds
+    )
+    error_message = "A retenção deve ser null ou um número inteiro de segundos entre 0 e 9223372036; 0 desabilita a retenção por idade."
+  }
+}
+
 variable "oauth2_proxy_chart_version" {
   description = "oauth2-proxy Helm chart version."
   type        = string

@@ -69,10 +69,12 @@ resource "helm_release" "pyroscope" {
     yamlencode({
       pyroscope = {
         disableSelfProfile = true
-        extraArgs = {
+        extraArgs = merge({
           "log.level"                      = "info"
           "pyroscopedb.max-block-duration" = "30m"
-        }
+          }, var.compactor_blocks_retention_period_seconds == null ? {} : {
+          "compactor.blocks-retention-period" = "${var.compactor_blocks_retention_period_seconds}s"
+        })
         resources = {
           requests = {
             cpu    = "50m"
