@@ -1,0 +1,48 @@
+{
+  "alloy": {
+    "controller": {
+      "replicas": 1,
+      "type": "statefulset"
+    },
+    "enabled": true
+  },
+  "architecture": {
+    "microservices": {
+      "enabled": false
+    },
+    "storage": {
+      "v1": true,
+      "v2": false
+    }
+  },
+  "minio": {
+    "enabled": false
+  },
+  "pyroscope": {
+    "config": "",
+    "disableSelfProfile": true,
+    "extraArgs": {
+      "log.level": "info",
+      "pyroscopedb.max-block-duration": "30m"
+    },
+    "persistence": {
+      "enabled": false
+    },
+    "resources": {
+      "limits": {
+        "cpu": "500m",
+        "memory": "768Mi"
+      },
+      "requests": {
+        "cpu": "50m",
+        "memory": "256Mi"
+      }
+    }
+  },
+  "serviceMonitor": {
+    "enabled": true,
+    "labels": {
+      "release": "monitoring"
+    }
+  }
+}
