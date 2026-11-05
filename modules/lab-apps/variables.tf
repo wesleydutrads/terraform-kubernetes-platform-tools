@@ -142,3 +142,27 @@ variable "enable_opentelemetry_load_generator_route" {
   type        = bool
   default     = false
 }
+
+variable "additional_hosts" {
+  description = "Opt-in public hostname aliases retained on existing HTTPRoutes and ServiceEntries; primary application and redirect URLs remain unchanged."
+  type        = map(list(string))
+  default     = {}
+  nullable    = false
+
+  validation {
+    condition     = alltrue([for host in flatten(values(var.additional_hosts)) : can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", host)) && strcontains(host, ".")])
+    error_message = "Additional hosts must be explicit DNS hostnames without wildcards, schemes or paths."
+  }
+}
+
+variable "additional_egress_hosts" {
+  description = "Opt-in existing OIDC issuer hostname aliases retained in public egress ServiceEntries; does not change issuer or credentials."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition     = alltrue([for host in var.additional_egress_hosts : can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", host)) && strcontains(host, ".")])
+    error_message = "Additional egress hosts must be explicit DNS hostnames."
+  }
+}

@@ -1,4 +1,5 @@
 locals {
+  public_hosts    = distinct(concat([var.host], var.additional_hosts))
   kubeconfig_path = pathexpand(var.kubeconfig_path)
   oidc_enabled    = var.oidc != null
 
@@ -20,7 +21,9 @@ locals {
         - name: ${var.gateway_name}
           namespace: ${var.gateway_namespace}
       hostnames:
-        - ${var.host}
+%{for host in local.public_hosts~}
+        - ${host}
+%{endfor~}
       rules:
         - backendRefs:
             - name: argocd-server
@@ -37,7 +40,9 @@ locals {
       exportTo:
         - "*"
       hosts:
-        - ${var.host}
+%{for host in local.public_hosts~}
+        - ${host}
+%{endfor~}
       location: MESH_EXTERNAL
       ports:
         - number: 80
@@ -87,7 +92,7 @@ resource "helm_release" "this" {
         cm = merge({
           "admin.enabled" = tostring(var.admin_enabled)
           }, local.oidc_enabled ? {
-          url = "https://${var.host}"
+          url = coalesce(var.url, "https://${var.host}")
           "oidc.config" = yamlencode({
             name         = "Keycloak"
             issuer       = var.oidc.issuer_url

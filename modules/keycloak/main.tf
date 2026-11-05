@@ -18,6 +18,7 @@ resource "random_password" "database" {
 }
 
 locals {
+  public_hosts        = distinct(concat([var.host], var.additional_hosts))
   kubeconfig_path     = pathexpand(var.kubeconfig_path)
   admin_password      = var.admin_password != null ? var.admin_password : try(random_password.admin[0].result, null)
   database_password   = var.database_password != null ? var.database_password : try(random_password.database[0].result, null)
@@ -43,7 +44,9 @@ locals {
         - name: ${var.gateway_name}
           namespace: ${var.gateway_namespace}
       hostnames:
-        - ${var.host}
+%{for host in local.public_hosts~}
+        - ${host}
+%{endfor~}
       rules:
         - backendRefs:
             - name: keycloak
@@ -60,7 +63,9 @@ locals {
       exportTo:
         - "*"
       hosts:
-        - ${var.host}
+%{for host in local.public_hosts~}
+        - ${host}
+%{endfor~}
       location: MESH_EXTERNAL
       ports:
         - number: 80
@@ -159,7 +164,7 @@ resource "kubernetes_config_map_v1" "this" {
     KC_DB                       = "mysql"
     KC_DB_URL                   = local.database_url
     KC_DB_USERNAME              = var.database_username
-    KC_HOSTNAME                 = "https://${var.host}"
+    KC_HOSTNAME                 = coalesce(var.hostname_url, "https://${var.host}")
     KC_HTTP_ENABLED             = "true"
     KC_PROXY_HEADERS            = "xforwarded"
     KC_HEALTH_ENABLED           = "true"

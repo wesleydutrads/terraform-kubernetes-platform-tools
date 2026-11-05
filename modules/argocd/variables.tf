@@ -86,3 +86,25 @@ variable "oidc" {
   })
   default = null
 }
+
+variable "additional_hosts" {
+  description = "Opt-in public hostname aliases retained on existing HTTPRoutes and ServiceEntries; primary application and redirect URLs remain unchanged."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition     = alltrue([for host in var.additional_hosts : can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", host)) && strcontains(host, ".")])
+    error_message = "Additional hosts must be explicit DNS hostnames without wildcards, schemes or paths."
+  }
+}
+
+variable "url" {
+  type        = string
+  default     = null
+  description = "URL canônica explícita, sem alterar o host ou as rotas; null usa https://host."
+  validation {
+    condition     = var.url == null ? true : can(regex("^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[^[:space:]]*)?$", var.url))
+    error_message = "Informe URL HTTPS sem credenciais ou espaços."
+  }
+}
