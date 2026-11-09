@@ -1516,6 +1516,15 @@ resource "helm_release" "kiali" {
         pod_annotations = {
           "kiali.io/signing-key-rotation" = var.kiali_signing_key_rotation
         }
+        } : {}, local.kiali_dedicated_signing_key ? {
+        # Keep the Secret mounted through custom_secrets (same mountPath the chart uses for the
+        # secret:<name>:<key> reference). Dropping it makes the Helm 3-way patch delete the mount
+        # shared with the chart's auto-mount; removing it needs a separate change in two Helm revisions.
+        custom_secrets = [{
+          name     = local.kiali_signing_key_secret_name
+          mount    = "/kiali-override-secrets/login-token-signing-key"
+          optional = false
+        }]
       } : {})
       auth = merge({
         strategy = var.kiali_auth_strategy
