@@ -94,6 +94,20 @@ enable_monitoring_token_policy = false
 Set `enable_monitoring_token_policy=true` to require
 `x-monitoring-token: <monitoring_token>` at the Gateway.
 
+### Kiali login token signing key
+
+By default the Kiali `login_token.signing_key` is `monitoring_token` (legacy
+behavior, shared with the Grafana admin password and the `x-monitoring-token`
+header). Set `kiali_dedicated_signing_key_enabled=true` to use a dedicated
+`random_password` stored in the Kubernetes Secret `kiali-signing-key` (key
+`signing-key`) and referenced by the chart as `secret:kiali-signing-key:signing-key`,
+so the key no longer appears in the Helm values. Grafana and the header keep
+using `monitoring_token`.
+
+Rotate by changing `kiali_signing_key_rotation` (the `random_password` keeper);
+the Kiali pod is restarted through a pod annotation and active Kiali sessions
+are invalidated. Rollback: set `kiali_dedicated_signing_key_enabled=false`.
+
 Kiali still requires a Kubernetes ServiceAccount token when
 `kiali_auth_strategy="token"`. The module can create:
 

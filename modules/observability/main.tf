@@ -5,26 +5,32 @@ locals {
     tracing    = distinct(concat([var.hosts.tracing], lookup(var.additional_hosts, "tracing", [])))
     prometheus = distinct(compact(concat([try(var.hosts.prometheus, null)], lookup(var.additional_hosts, "prometheus", []))))
   }
-  kubeconfig_path             = pathexpand(var.kubeconfig_path)
-  tracing_host                = var.hosts.tracing
-  prometheus_host             = try(var.hosts.prometheus, null)
-  tracing_backend             = var.enable_tempo ? "monitoring-grafana" : "jaeger"
-  tracing_backend_port        = var.enable_tempo ? 80 : 16686
-  oidc_issuer_host            = local.oidc_enabled ? regex("^https?://([^/]+)", var.oidc.issuer_url)[0] : null
-  oauth2_proxy_issuer_host    = var.oauth2_proxy == null ? null : regex("^https?://([^/]+)", nonsensitive(var.oauth2_proxy.issuer_url))[0]
-  monitoring_public_hosts     = distinct(compact(concat(local.route_hosts.kiali, local.route_hosts.grafana, local.route_hosts.tracing)))
-  oauth_public_hosts          = var.enable_prometheus_route ? local.route_hosts.prometheus : []
-  egress_public_hosts         = distinct(compact(concat(local.monitoring_public_hosts, [local.oidc_issuer_host], var.additional_egress_hosts)))
-  oauth_egress_hosts          = distinct(compact(concat(local.oauth_public_hosts, [local.oauth2_proxy_issuer_host], var.additional_egress_hosts)))
-  public_hosts_policy         = join("\n", [for host in local.monitoring_public_hosts : "                  - ${host}"])
-  public_hosts_service_entry  = join("\n", [for host in local.egress_public_hosts : "        - ${host}"])
-  oauth_hosts_service_entry   = join("\n", [for host in local.oauth_egress_hosts : "        - ${host}"])
-  oidc_enabled                = var.oidc != null
-  loki_storage_endpoint_host  = var.loki_storage == null ? null : nonsensitive(replace(replace(var.loki_storage.endpoint, "https://", ""), "http://", ""))
-  tempo_storage_endpoint_host = var.tempo_storage == null ? null : nonsensitive(replace(replace(var.tempo_storage.endpoint, "https://", ""), "http://", ""))
-  storage_endpoint_hosts      = distinct(compact([local.loki_storage_endpoint_host, local.tempo_storage_endpoint_host]))
-  storage_service_entry_hosts = join("\n", [for host in local.storage_endpoint_hosts : "        - ${host}"])
-  kiali_discovery_override    = local.oidc_enabled ? try(var.oidc.kiali_discovery_override, null) : null
+  kubeconfig_path               = pathexpand(var.kubeconfig_path)
+  tracing_host                  = var.hosts.tracing
+  prometheus_host               = try(var.hosts.prometheus, null)
+  tracing_backend               = var.enable_tempo ? "monitoring-grafana" : "jaeger"
+  tracing_backend_port          = var.enable_tempo ? 80 : 16686
+  oidc_issuer_host              = local.oidc_enabled ? regex("^https?://([^/]+)", var.oidc.issuer_url)[0] : null
+  oauth2_proxy_issuer_host      = var.oauth2_proxy == null ? null : regex("^https?://([^/]+)", nonsensitive(var.oauth2_proxy.issuer_url))[0]
+  monitoring_public_hosts       = distinct(compact(concat(local.route_hosts.kiali, local.route_hosts.grafana, local.route_hosts.tracing)))
+  oauth_public_hosts            = var.enable_prometheus_route ? local.route_hosts.prometheus : []
+  egress_public_hosts           = distinct(compact(concat(local.monitoring_public_hosts, [local.oidc_issuer_host], var.additional_egress_hosts)))
+  oauth_egress_hosts            = distinct(compact(concat(local.oauth_public_hosts, [local.oauth2_proxy_issuer_host], var.additional_egress_hosts)))
+  public_hosts_policy           = join("\n", [for host in local.monitoring_public_hosts : "                  - ${host}"])
+  public_hosts_service_entry    = join("\n", [for host in local.egress_public_hosts : "        - ${host}"])
+  oauth_hosts_service_entry     = join("\n", [for host in local.oauth_egress_hosts : "        - ${host}"])
+  oidc_enabled                  = var.oidc != null
+  loki_storage_endpoint_host    = var.loki_storage == null ? null : nonsensitive(replace(replace(var.loki_storage.endpoint, "https://", ""), "http://", ""))
+  tempo_storage_endpoint_host   = var.tempo_storage == null ? null : nonsensitive(replace(replace(var.tempo_storage.endpoint, "https://", ""), "http://", ""))
+  storage_endpoint_hosts        = distinct(compact([local.loki_storage_endpoint_host, local.tempo_storage_endpoint_host]))
+  storage_service_entry_hosts   = join("\n", [for host in local.storage_endpoint_hosts : "        - ${host}"])
+  kiali_discovery_override      = local.oidc_enabled ? try(var.oidc.kiali_discovery_override, null) : null
+  kiali_dedicated_signing_key   = var.enabled && var.enable_kiali && var.kiali_dedicated_signing_key_enabled
+  kiali_signing_key_secret_name = "kiali-signing-key"
+  kiali_signing_key_secret_key  = "signing-key"
+  # Default keeps the legacy value (var.monitoring_token); the dedicated mode uses the
+  # Kiali chart's secret:<name>:<key> reference so the key never appears in Helm values.
+  kiali_login_signing_key = local.kiali_dedicated_signing_key ? "secret:${local.kiali_signing_key_secret_name}:${local.kiali_signing_key_secret_key}" : var.monitoring_token
   kiali_discovery_override_values = local.kiali_discovery_override == null ? {} : {
     discovery_override = merge(
       try(local.kiali_discovery_override.authorization_endpoint, null) == null ? {} : {
@@ -1495,7 +1501,7 @@ resource "helm_release" "kiali" {
 
   values = [
     yamlencode({
-      deployment = {
+      deployment = merge({
         resources = {
           requests = {
             cpu    = "25m"
@@ -1505,7 +1511,12 @@ resource "helm_release" "kiali" {
             memory = "512Mi"
           }
         }
-      }
+        }, local.kiali_dedicated_signing_key ? {
+        # Roll the Kiali pod when the signing key is rotated so it remounts the new Secret.
+        pod_annotations = {
+          "kiali.io/signing-key-rotation" = var.kiali_signing_key_rotation
+        }
+      } : {})
       auth = merge({
         strategy = var.kiali_auth_strategy
         }, local.oidc_enabled && var.kiali_auth_strategy == "openid" ? {
@@ -1519,7 +1530,7 @@ resource "helm_release" "kiali" {
       } : {})
       login_token = {
         expiration_seconds = var.kiali_login_token_expiration_seconds
-        signing_key        = var.monitoring_token
+        signing_key        = local.kiali_login_signing_key
       }
       external_services = {
         prometheus = {
@@ -1551,7 +1562,36 @@ resource "helm_release" "kiali" {
     })
   ]
 
-  depends_on = [kubernetes_secret_v1.kiali_oidc]
+  depends_on = [kubernetes_secret_v1.kiali_oidc, kubernetes_secret_v1.kiali_signing_key]
+}
+
+# Dedicated Kiali login token signing key, independent from var.monitoring_token.
+# Rotate by changing var.kiali_signing_key_rotation (random_password keeper).
+resource "random_password" "kiali_signing_key" {
+  count = local.kiali_dedicated_signing_key ? 1 : 0
+
+  length  = 32
+  special = false
+
+  keepers = {
+    rotation = var.kiali_signing_key_rotation
+  }
+}
+
+resource "kubernetes_secret_v1" "kiali_signing_key" {
+  count = local.kiali_dedicated_signing_key ? 1 : 0
+
+  metadata {
+    name      = local.kiali_signing_key_secret_name
+    namespace = kubernetes_namespace_v1.this[0].metadata[0].name
+    labels = {
+      app = "kiali"
+    }
+  }
+
+  data = {
+    (local.kiali_signing_key_secret_key) = random_password.kiali_signing_key[0].result
+  }
 }
 
 resource "kubernetes_secret_v1" "kiali_oidc" {

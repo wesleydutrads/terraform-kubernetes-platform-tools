@@ -130,6 +130,23 @@ variable "kiali_login_token_expiration_seconds" {
   default     = 604800
 }
 
+variable "kiali_dedicated_signing_key_enabled" {
+  description = "Use a dedicated random Kubernetes Secret (referenced as secret:<name>:<key>) as the Kiali login token signing key instead of var.monitoring_token. Default false keeps the legacy behavior. Grafana adminPassword and the x-monitoring-token header keep using monitoring_token."
+  type        = bool
+  default     = false
+}
+
+variable "kiali_signing_key_rotation" {
+  description = "Keeper for the dedicated Kiali signing key. Change the value to generate a new key (invalidates active Kiali sessions). Only used when kiali_dedicated_signing_key_enabled=true."
+  type        = string
+  default     = "1"
+
+  validation {
+    condition     = length(var.kiali_signing_key_rotation) > 0
+    error_message = "kiali_signing_key_rotation must not be empty."
+  }
+}
+
 variable "enable_grafana_anonymous_viewer" {
   description = "Enable Grafana anonymous Viewer access. If enable_monitoring_token_policy=true, this remains behind the shared Gateway token."
   type        = bool

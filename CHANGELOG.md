@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added opt-in `kiali_dedicated_signing_key_enabled` and `kiali_signing_key_rotation` to give Kiali a dedicated login token signing key stored in a Kubernetes Secret (`secret:<name>:<key>`), decoupled from `monitoring_token`. Default is unchanged.
 - Initial repository split for Kubernetes platform tools.
 - Added modules for platform, observability, Argo CD, Keycloak runtime, and Keycloak configuration.
 - Documented the boundary between cloud infrastructure modules and Kubernetes application/tool modules.
