@@ -50,6 +50,7 @@ class KialiSigningKeyContract(unittest.TestCase):
         values = self.evaluate()
         self.assertEqual(values["login_token"]["signing_key"], TOKEN)
         self.assertNotIn("pod_annotations", values["deployment"])
+        self.assertNotIn("custom_secrets", values["deployment"])
 
     def test_dedicated_uses_secret_reference(self):
         values = self.evaluate({"kiali_dedicated_signing_key_enabled": True,
@@ -58,9 +59,21 @@ class KialiSigningKeyContract(unittest.TestCase):
         self.assertEqual(values["deployment"]["pod_annotations"]["kiali.io/signing-key-rotation"], "2")
         self.assertNotIn(TOKEN, json.dumps(values))
 
+    def test_dedicated_keeps_secret_mounted_via_custom_secrets(self):
+        values = self.evaluate({"kiali_dedicated_signing_key_enabled": True})
+        self.assertEqual(values["deployment"]["custom_secrets"], [{
+            "name": "kiali-signing-key",
+            "mount": "/kiali-override-secrets/login-token-signing-key",
+            "optional": False,
+        }])
+        # Mesmo mountPath que o chart usa para login_token.signing_key (volume login-token-signing-key).
+        self.assertTrue(values["deployment"]["custom_secrets"][0]["mount"].endswith("/login-token-signing-key"))
+
     def test_dedicated_ignored_when_kiali_disabled(self):
         values = self.evaluate({"kiali_dedicated_signing_key_enabled": True, "enable_kiali": False})
         self.assertEqual(values["login_token"]["signing_key"], TOKEN)
+        self.assertNotIn("custom_secrets", values["deployment"])
+        self.assertNotIn("pod_annotations", values["deployment"])
 
 
 if __name__ == "__main__":

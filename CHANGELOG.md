@@ -5,6 +5,7 @@
 ### Added
 
 - Added opt-in `kiali_dedicated_signing_key_enabled` and `kiali_signing_key_rotation` to give Kiali a dedicated login token signing key stored in a Kubernetes Secret (`secret:<name>:<key>`), decoupled from `monitoring_token`. Default is unchanged.
+- Kiali dedicated signing key: keep the Secret mounted through `deployment.custom_secrets` (same mountPath as the chart's auto-mount) so the Helm 3-way patch never deletes the mount. Default is unchanged; removing `custom_secrets` requires a separate change in two Helm revisions.
 - Initial repository split for Kubernetes platform tools.
 - Added modules for platform, observability, Argo CD, Keycloak runtime, and Keycloak configuration.
 - Documented the boundary between cloud infrastructure modules and Kubernetes application/tool modules.
