@@ -52,3 +52,8 @@ output "bookinfo_url" {
   description = "Public Bookinfo URL when the route is enabled."
   value       = var.enable_bookinfo_sample && var.enable_bookinfo_route ? "https://${local.bookinfo_host}/productpage" : null
 }
+
+output "application_domains" {
+  description = "Primary and coexistence domains; preserve their union in OIDC callback configuration managed separately."
+  value       = local.application_domains
+}
